@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project>
+
+  <!--
+    自包含发布（dotnet publish -r win-x64 /p:SelfContained=true）时的必要修正。
+
+    现象：本工具链里的 SDK 在做 RID 相关的还原时，会连带请求
+    Microsoft.AspNetCore.App.Runtime.win-x64 这个本项目根本用不到的运行时包，
+    导致离线还原报 NU1101（我们不是 Web 项目，也不需要 AspNetCore 的任何程序集）。
+    实测：连一个空白控制台工程 restore -r win-x64 都会这样，所以是工具链的行为，不是我们工程的配置问题。
+
+    修法：把 SDK 里那条 AspNetCore 的 KnownFrameworkReference 摘掉。
+    这里用 Directory.Build.targets（在工程体和 SDK props 之后导入），
+    所以 Remove 一定作用在 SDK 已经定义好这个 Item 之后。
+    代价：自包含产物里不会多出 10 到 20MB 用不到的 AspNetCore 程序集（反而是好事）。
+
+    注意：XML 注释里不能出现两个连续的减号，写命令行参数时请绕开。
+  -->
+  <ItemGroup>
+    <KnownFrameworkReference Remove="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+</Project>
