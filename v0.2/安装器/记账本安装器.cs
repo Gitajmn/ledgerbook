@@ -49,6 +49,17 @@ internal static class Program
     private static int Main(string[] args)
     {
         var options = Options.Parse(args);
+        if (!string.IsNullOrEmpty(options.CheckVersion))
+        {
+            var target = options.CheckVersion;
+            var found = UpdateCheck.InstalledVersion(target);
+            var level = UpdateCheck.Compare(found, BuildInfo.AppVersion);
+            Console.WriteLine("目标目录：" + target);
+            Console.WriteLine("本安装包版本：" + BuildInfo.AppVersion);
+            Console.WriteLine("该目录已装版本：" + (found.Length > 0 ? found : "（没装过）"));
+            Console.WriteLine("判定：" + (found.Length == 0 ? "全新安装，不弹" : (level >= 0 ? "同级或更新 → 会弹二次确认" : "低于新版 → 不弹，直接升级")));
+            return 0;
+        }
         if (options.Shot != null)
         {
             Application.EnableVisualStyles();
@@ -105,25 +116,7 @@ internal static class Program
         /// <summary>目标目录里已安装的版本（注册表 → 目标目录的 exe → 安装信息.txt）；没装过返回空串。</summary>
         public static string InstalledVersion(string target)
         {
-            try
-            {
-                using (var key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(
-                    @"Software\Microsoft\Windows\CurrentVersion\Uninstall\记账本"))
-                {
-                    if (key != null)
-                    {
-                        var fromRegistry = key.GetValue("DisplayVersion") as string;
-                        if (fromRegistry != null && fromRegistry.Trim().Length > 0)
-                        {
-                            return fromRegistry.Trim();
-                        }
-                    }
-                }
-            }
-            catch (Exception)
-            {
-            }
-
+            // ① 目标目录里的 exe 最可信（就在我们要装的位置上）
             try
             {
                 var exe = Path.Combine(target, "记账本.exe");
@@ -140,16 +133,49 @@ internal static class Program
             {
             }
 
+            // ② 目标目录里的安装信息.txt（第二行是安装位置，第一行末尾是版本号）
             try
             {
                 var info = Path.Combine(target, "安装信息.txt");
                 if (File.Exists(info))
                 {
-                    var first = File.ReadAllLines(info)[0];
-                    var space = first.LastIndexOf((char)32);
-                    if (space > 0 && space + 1 < first.Length)
+                    var lines = File.ReadAllLines(info);
+                    if (lines.Length > 0)
                     {
-                        return first.Substring(space + 1).Trim();
+                        var first = lines[0];
+                        var space = first.LastIndexOf((char)32);
+                        if (space > 0 && space + 1 < first.Length)
+                        {
+                            return first.Substring(space + 1).Trim();
+                        }
+                    }
+                }
+            }
+            catch (Exception)
+            {
+            }
+
+            // ③ 注册表**只在这个安装位置就是目标目录时**才采信：
+            //    注册表是全局的，如果以前在别的目录装过（比如自检/试用），它的版本号更高，就会让本次安装误弹询问。
+            try
+            {
+                using (var key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(
+                    @"Software\Microsoft\Windows\CurrentVersion\Uninstall\记账本"))
+                {
+                    if (key != null)
+                    {
+                        var location = key.GetValue("InstallLocation") as string;
+                        var sameTarget = location != null
+                                         && string.Equals(location.TrimEnd((char)92), (target ?? "").TrimEnd((char)92),
+                                             StringComparison.OrdinalIgnoreCase);
+                        if (sameTarget)
+                        {
+                            var fromRegistry = key.GetValue("DisplayVersion") as string;
+                            if (fromRegistry != null && fromRegistry.Trim().Length > 0)
+                            {
+                                return fromRegistry.Trim();
+                            }
+                        }
                     }
                 }
             }
@@ -217,6 +243,7 @@ internal sealed class Options
     public bool Trust;
     public bool NoLaunch = true;
     public bool TestIcons;
+    public string CheckVersion;   // --check-version <目录>：只打印判定结果，不改任何文件
     public bool ForceRuntime;
     public string Shot;
     public int Page;
@@ -235,6 +262,7 @@ internal sealed class Options
                 case "--launch": o.NoLaunch = false; break;
                 case "--no-launch": o.NoLaunch = true; break;
                 case "--test-icons": o.TestIcons = true; break;
+                case "--check-version": if (i + 1 < args.Length) o.CheckVersion = args[++i]; break;
                 case "--force-runtime": o.ForceRuntime = true; break;
                 case "--shot": if (i + 1 < args.Length) o.Shot = args[++i]; break;
                 case "--page": if (i + 1 < args.Length) int.TryParse(args[++i], out o.Page); break;
@@ -1358,7 +1386,10 @@ internal sealed class InstallerForm : Form
             // 只在**交互式安装**时询问：--silent 静默安装直接走 InstallEngine，不经过这里，
             // 所以自检脚本 / 批量安装不会被弹窗打断。
             var installed = UpdateCheck.InstalledVersion(target);
-            if (installed.Length > 0 && UpdateCheck.Compare(installed, BuildInfo.AppVersion) >= 0)
+            // 已装版本**低于**本安装包 = 正常升级 → 不问，直接装；
+            // 只有"同级或更新"才先问（允许用旧版主动换掉新版）。
+            var shouldAsk = installed.Length > 0 && UpdateCheck.Compare(installed, BuildInfo.AppVersion) >= 0;
+            if (shouldAsk)
             {
                 var answer = MessageBox.Show(this,
                     "已安装 " + installed + " 版本，是否继续安装？" + Environment.NewLine + Environment.NewLine
