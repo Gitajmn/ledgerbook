@@ -79,6 +79,12 @@ public static class Program
         var pageCycle = 0;
         string? shootSections = null;
         var trace = false;
+        var whatsNew = false;   // --whats-new：打开「更新内容」窗口（配合 --screenshot 截图）
+        var pasteImport = false;   // --paste-import：打开"粘贴文本导入"窗口（配合 --screenshot 截图验证界面）
+        string? pasteText = null;   // --paste-text <文本>：填进粘贴框并直接走"继续"（真正跑一次写入）
+        var selectFirst = false;   // --select-first：启动后选中查询页明细第一行（验证选中配色）
+        string? statsKind = null;         // --stats-kind 收入|支出：查询页只画这一类
+        string? statsHighlight = null;    // --stats-highlight 分类名：图表里该类保持原色、其余变暗
         string? themeTest = null;   // --theme-test <浅色|深色>：启动后真的调用一次切换（含 RebuildUi），用于自动验证
         // 注意：不带值的开关**不要**去动 i —— 之前写成 i-- 导致同一参数被反复读到，
         // 参数解析直接死循环（界面还没出来就卡住了）。这里一律只是置标志位。
@@ -93,6 +99,27 @@ public static class Program
                 case "--theme-test" when i + 1 < args.Length:
                     themeTest = args[i + 1];
                     i++;
+                    break;
+                case "--stats-kind" when i + 1 < args.Length:
+                    statsKind = args[i + 1];
+                    i++;
+                    break;
+                case "--stats-highlight" when i + 1 < args.Length:
+                    statsHighlight = args[i + 1];
+                    i++;
+                    break;
+                case "--paste-text" when i + 1 < args.Length:
+                    pasteText = args[i + 1];
+                    i++;
+                    break;
+                case "--whats-new":
+                    whatsNew = true;
+                    break;
+                case "--paste-import":
+                    pasteImport = true;
+                    break;
+                case "--select-first":
+                    selectFirst = true;
                     break;
                 case "--screenshot" when i + 1 < args.Length:
                     screenshot = args[i + 1];
@@ -187,8 +214,10 @@ case "--trace":
         try
         {
             var startupSettings = Core.Settings.Load();
+            Core.Paths.ExportDirOverride = startupSettings.ExportDir;   // 设置里的自定义导出目录（空 = 默认）
             Core.Log.Enabled = startupSettings.LogEnabled;
             Core.Log.Info($"启动 记账本 v{Core.Paths.Version}　根目录={Core.Paths.Root}　主题={startupSettings.Theme}　系统={Environment.OSVersion.VersionString}　运行时={Environment.Version}");
+            Core.Log.Info($"导出目录={Core.Paths.ExportDir}" + (Core.Paths.ExportDirOverride.Length > 0 ? "（设置里的自定义目录）" : "（默认）"));
             Ui.ApplyTheme(Ui.ParseTheme(Core.Settings.Load().Theme));   // 主题：浅色 / 深色 / 跟随系统
             Ui.InstallGlobalStyles();   // 圆角滚动条 / 圆角提示气泡（要按当前主题取色，所以放在后面）
             // 开发用：单独渲染某个图形，方便检查画得对不对
@@ -261,15 +290,49 @@ case "--trace":
             // 自动化验证：直接打开导入预览窗口
             if (importPreview is not null && screenshot is not null)
             {
-                var importWindow = new ImportWindow(Core.Settings.Load(), importPreview);
                 var helper = new MainWindow();
+                if (themeTest is not null)
+                {
+                    // 必须在构造 ImportWindow **之前**应用主题：窗口构造时就把当时的画刷拷进控件了
+                    helper.ApplyTheme(themeTest);
+                }
+
+                var importWindow = new ImportWindow(Core.Settings.Load(), importPreview);
                 importWindow.Show();
                 helper.CaptureWindow(importWindow, screenshot, () => app.Shutdown());
                 app.Run(importWindow);
                 return 0;
             }
 
-            var window = new MainWindow { InitialPage = page };
+            // 自动化：打开"粘贴文本导入"窗口并截图
+            if (pasteImport && screenshot is not null)
+            {
+                var pasteWindow = new PasteImportWindow(Core.Settings.Load());
+                if (pasteText is not null)
+                {
+                    pasteWindow.FillAndContinueForAutomation(pasteText);
+                    Core.Log.Info("粘贴导入自动化：写入结果 " + (pasteWindow.TempPath ?? "失败"));
+                }
+                var helper2 = new MainWindow();
+                pasteWindow.Show();
+                helper2.CaptureWindow(pasteWindow, screenshot, () => app.Shutdown());
+                app.Run(pasteWindow);
+                return 0;
+            }
+
+            // 自动化：打开「更新内容」窗口并截图
+            if (whatsNew && screenshot is not null)
+            {
+                var helper3 = new MainWindow();
+                var whatsWindow = new WhatsNewWindow("记账本 v" + Core.Paths.Version + " 更新内容", WhatsNew.Text());
+                whatsWindow.WindowStartupLocation = WindowStartupLocation.CenterScreen;
+                whatsWindow.Show();
+                helper3.CaptureWindow(whatsWindow, screenshot, () => app.Shutdown());
+                app.Run(whatsWindow);
+                return 0;
+            }
+
+            var window = new MainWindow { InitialPage = page, AutomationSelectFirst = selectFirst, AutomationStatsKind = statsKind, AutomationStatsCategory = statsHighlight, SuppressWhatsNew = screenshot is not null };
         if (themeTest is not null)
         {
             window.ApplyTheme(themeTest);   // 与用户在设置里点"深色/浅色"完全同一条路径（含 RebuildUi）

@@ -47,7 +47,7 @@ if (-not $跳过向导构建) {
     Write-Host '[1/4] 编框架依赖版向导（wizard-slim）…'
     . (Join-Path $toolchain 'dotnet_env.ps1') | Out-Null
     & $env:LB_DOTNET build (Join-Path $root 'src\LedgerBook.Setup\LedgerBook.Setup.csproj') `
-        -c Release -o $buildOut /p:RestoreConfigFile=$env:LB_NUGET_CONFIG | Out-Host
+        -c Release -o $buildOut /p:RestoreConfigFile=$env:LB_NUGET_CONFIG /p:Version=$version | Out-Host
     if ($LASTEXITCODE -ne 0) { throw '向导构建失败' }
 }
 $slimWizardSource = $buildOut

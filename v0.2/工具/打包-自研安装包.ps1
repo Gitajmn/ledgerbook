@@ -85,6 +85,13 @@ if (-not $跳过应用编译) {
     & $env:LB_DOTNET publish (Join-Path $root 'src\LedgerBook.App\LedgerBook.App.csproj') `
         -c Release --no-self-contained -o $appDir /p:RestoreConfigFile=$env:LB_NUGET_CONFIG | Out-Host
     if ($LASTEXITCODE -ne 0) { throw '应用编译失败' }
+
+# 把「更新公告.md」作为更新内容放进应用负载（装好后"更新内容"窗口显示的就是它）
+$公告源 = Join-Path $repo "v0.2\v$版本\更新公告.md"
+if (Test-Path $公告源) {
+    Copy-Item $公告源 (Join-Path $appDir '更新内容.txt') -Force
+    Write-Host '  更新内容.txt ← 更新公告.md'
+}
 }
 
 # ---------------------------------------------------------------- 2) 运行时负载（私有运行时布局）

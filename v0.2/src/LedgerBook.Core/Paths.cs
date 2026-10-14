@@ -91,7 +91,14 @@ public static class Paths
 
     public static string DataDir => Path.Combine(Root, "数据");
     public static string ConfigDir => Path.Combine(Root, "配置");
-    public static string ExportDir => Path.Combine(Root, "导出");
+    /// <summary>自定义导出目录（设置里的「导出目录」；空 = 用默认的 数据根目录\导出）。</summary>
+    public static string ExportDirOverride = "";
+
+    /// <summary>导出目录默认位置。</summary>
+    public static string ExportDirDefault => Path.Combine(Root, "导出");
+
+    /// <summary>实际使用的导出目录：设置里填了就优先用它（导出 CSV、月度汇总都走这里）。</summary>
+    public static string ExportDir => string.IsNullOrWhiteSpace(ExportDirOverride) ? ExportDirDefault : ExportDirOverride;
     public static string BackupDir => Path.Combine(Root, "备份");
 
     public static string CategoriesFile => Path.Combine(ConfigDir, "分类.json");

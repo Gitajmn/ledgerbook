@@ -68,14 +68,23 @@ if (-not $跳过发布) {
     if (Test-Path $appOut) { Remove-Item -Recurse -Force $appOut }
     & $env:LB_DOTNET publish (Join-Path $root 'src\LedgerBook.App\LedgerBook.App.csproj') `
         -c Release -r win-x64 --self-contained true -o $appOut `
-        /p:RestoreConfigFile=$offlineConfig
+        /p:RestoreConfigFile=$offlineConfig /p:Version=$version
     if ($LASTEXITCODE -ne 0) { throw '应用自包含发布失败' }
+
+    # 把「更新公告」作为更新内容放进应用负载（安装后更新内容窗口显示的就是它）
+    $公告源 = Join-Path $repo "v0.2\v$version\更新公告.md"
+    if (Test-Path $公告源) {
+        Copy-Item $公告源 (Join-Path $appOut '更新内容.txt') -Force
+        Write-Host '  更新内容.txt ← 更新公告.md'
+    } else {
+        Write-Host '  注意：没找到 更新公告.md，更新内容窗口会退回内置兜底文字' -ForegroundColor Yellow
+    }
 
     Write-Host '[2/4] 自包含发布向导…'
     if (Test-Path $wizOut) { Remove-Item -Recurse -Force $wizOut }
     & $env:LB_DOTNET publish (Join-Path $root 'src\LedgerBook.Setup\LedgerBook.Setup.csproj') `
         -c Release -r win-x64 --self-contained true -o $wizOut `
-        /p:RestoreConfigFile=$offlineConfig
+        /p:RestoreConfigFile=$offlineConfig /p:Version=$version
     if ($LASTEXITCODE -ne 0) { throw '向导自包含发布失败' }
 }
 

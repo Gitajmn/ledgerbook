@@ -22,7 +22,9 @@ public sealed class ImportWindow : Window
 
     private readonly TextBlock _summary = Ui.Label("", Ui.FontBody, Ui.Text, bold: true);
     private readonly StackPanel _deviceList = new();
-    private readonly Ui.DataTable _table;
+    private readonly Grid _planGrid = new();
+    private readonly TextBlock _planCounts = Ui.Label("", Ui.FontSmall, Ui.Muted);
+    private List<RowPlan> _plans = new();
     private readonly TextBlock _resultText = Ui.Label("", Ui.FontBody, Ui.Muted);
     private readonly TextBox _ownerBox;
     private readonly Border _ownerShell;
@@ -160,18 +162,22 @@ public sealed class ImportWindow : Window
         options.Children.Add(deviceBox);
 
         // ---------- 预览表格 ----------
-        _table = new Ui.DataTable(new (string, double, HorizontalAlignment)[]
+        // ---------- 预览列表：逐行（左侧三态按钮；预判不会导入的整行显示为浅色，适配深色/自定义配色）----------
+        _planCounts.Margin = new Thickness(12, 0, 0, 6);
+        _planCounts.Margin = new Thickness(12, 6, 0, 6);
+        var listScroll = new ScrollViewer
         {
-            ("日期", 1.15, HorizontalAlignment.Left),
-            ("时间", 0.6, HorizontalAlignment.Left),
-            ("类型", 0.55, HorizontalAlignment.Left),
-            ("分类", 0.9, HorizontalAlignment.Left),
-            ("金额", 1.0, HorizontalAlignment.Right),
-            ("短备注", 1.25, HorizontalAlignment.Left),
-            ("归属", 1.15, HorizontalAlignment.Left),
-            ("来源", 1.0, HorizontalAlignment.Left),
-        });
-        _table.Root.Margin = new Thickness(12, 0, 0, 0);
+            Content = _planGrid,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            Padding = new Thickness(0),
+        };
+
+        // 外观与旧版数据表一致：圆角卡片 + 表头 + 行（列宽按比例分配）
+        var listCard = Ui.CardPanel(listScroll, padding: 2);
+        var listColumn = new StackPanel { Margin = new Thickness(12, 0, 0, 0) };
+        listColumn.Children.Add(_planCounts);
+        listColumn.Children.Add(listCard);
 
         var body = new Grid();
         body.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
@@ -185,8 +191,8 @@ public sealed class ImportWindow : Window
         optionsScroll.Margin = new Thickness(20, 0, 8, 0);
         Grid.SetColumn(optionsScroll, 0);
         body.Children.Add(optionsScroll);
-        Grid.SetColumn(_table.Root, 1);
-        body.Children.Add(_table.Root);
+        Grid.SetColumn(listColumn, 1);
+        body.Children.Add(listColumn);
 
         // ---------- 底部 ----------
         var footer = new StackPanel
@@ -318,40 +324,188 @@ public sealed class ImportWindow : Window
         _summary.Text = $"{Exchange.Describe(_preview)}　|　将按「{_options.Strategy}」处理";
         _resultText.Text = "";
 
-        _table.Clear();
-        if (transformed.Count == 0)
+        // ---------- 先一步检查：与已录入数据快速对比（只读涉及到的那些天）----------
+        var existing = new List<Record>();
+        foreach (var day in transformed.Select(item => item.Date).Distinct())
         {
-            _table.AddEmpty("这份文件里没有能导入的记录");
+            existing.AddRange(Storage.ReadDay(day).Records);
+        }
+
+        _plans = Exchange.Plan(transformed, existing);
+        BuildPlanRows();
+    }
+
+    /// <summary>把三态与预判渲染成一行行；点左侧小按钮可改成 自动 / 导入锁定 / 不导入锁定。</summary>
+    /// <summary>列宽权重：与旧版数据表同款比例（第一列「状态」固定宽度）。</summary>
+    private static readonly double[] PlanWeights = new[] { 1.15, 0.6, 0.55, 0.9, 1.0, 1.25, 1.15, 1.0 };
+
+    /// <summary>把三态与预判渲染成整张表（表头 + 所有行都在同一个 Grid 里 → 列宽天然对齐、互不遮挡）。</summary>
+    private void BuildPlanRows()
+    {
+        _planGrid.Children.Clear();
+        _planGrid.ColumnDefinitions.Clear();
+        _planGrid.RowDefinitions.Clear();
+
+        const int stateWidth = 92;
+        _planGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(stateWidth, GridUnitType.Pixel) });
+        foreach (var weight in PlanWeights)
+        {
+            _planGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(weight, GridUnitType.Star) });
+        }
+
+        var header = new[] { "状态", "日期", "时间", "类型", "分类", "金额", "短备注", "归属", "来源" };
+        _planGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(34, GridUnitType.Pixel) });
+        for (var column = 0; column < header.Length; column++)
+        {
+            var cell = Ui.Label(header[column], Ui.FontSmall, Ui.Muted, bold: true);
+            cell.Margin = new Thickness(10, 0, 10, 0);
+            cell.VerticalAlignment = VerticalAlignment.Center;
+            if (column == 5)
+            {
+                cell.HorizontalAlignment = HorizontalAlignment.Right;   // 金额列表头右对齐（与数据行一致）
+            }
+
+            Grid.SetRow(cell, 0);
+            Grid.SetColumn(cell, column);
+            _planGrid.Children.Add(cell);
+        }
+
+        if (_plans.Count == 0)
+        {
+            _planCounts.Text = "这份文件里没有能导入的记录";
             return;
         }
 
-        var symbol = _settings.CurrencySymbol;
+        var fresh = _plans.Count(item => item.WillImport);
+        var skip = _plans.Count(item => !item.WillImport && item.Verdict != RowVerdict.Similar);
+        var similar = _plans.Count(item => item.Verdict == RowVerdict.Similar);
+        _planCounts.Text = $"会导入 {fresh} 条　｜　跳过 {skip} 条（账本里已有）　｜　疑似重复 {similar} 条"
+                           + "　（点左侧「状态」按钮可改成 自动 / 导入锁定 / 不导入锁定）";
+
         var shown = 0;
-        foreach (var record in transformed)
+        foreach (var plan in _plans)
         {
-            if (shown++ >= 200)
+            if (shown >= 300)
             {
                 break;
             }
 
-            _table.AddRow(new[]
-            {
-                record.Date.ToString("yyyy-MM-dd"),
-                record.Time,
-                record.Kind,
-                record.Category,
-                Valid.Money(record.Amount, symbol),
-                record.Note,
-                record.Owner.Length > 0 ? record.Owner : "（空）",
-                record.Source.Length > 0 ? record.Source : "（空）",
-            });
+            AddPlanRow(plan, shown + 1);
+            shown++;
         }
 
-        if (transformed.Count > 200)
+        if (_plans.Count > shown)
         {
-            _table.AddEmpty($"…… 还有 {transformed.Count - 200} 条，导入时会全部处理");
+            _planGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(30, GridUnitType.Pixel) });
+            var more = Ui.Hint($"…… 还有 {_plans.Count - shown} 条未显示，导入时会全部按各自状态处理");
+            more.Margin = new Thickness(10, 0, 10, 0);
+            more.VerticalAlignment = VerticalAlignment.Center;
+            Grid.SetRow(more, shown + 1);
+            Grid.SetColumn(more, 1);
+            Grid.SetColumnSpan(more, 8);
+            _planGrid.Children.Add(more);
         }
     }
+
+    private void AddPlanRow(RowPlan plan, int row)
+    {
+        var record = plan.Record;
+        var willImport = plan.WillImport;
+        _planGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(32, GridUnitType.Pixel) });
+
+        // 预判不会导入：整行浅色（前景次要色 + 背景朝背景色混合）—— 深色/自定义配色下同样成立
+        var brush = new SolidColorBrush(willImport ? Colors.Transparent : Ui.Blend(Ui.CardColor, Ui.BackgroundColor, 0.55));
+        brush.Freeze();
+        var background = new Border { Background = brush, CornerRadius = new CornerRadius(4) };
+        Grid.SetRow(background, row);
+        Grid.SetColumn(background, 0);
+        Grid.SetColumnSpan(background, 9);
+        _planGrid.Children.Add(background);   // 先放背景，再放内容 → 不会被遮住
+
+        var state = Ui.GhostButton(PlanStateText(plan), () => { }, 24);
+        state.FontSize = Ui.FontSmall;
+        state.Padding = new Thickness(8, 0, 8, 0);
+        state.Margin = new Thickness(8, 0, 8, 0);
+        state.HorizontalAlignment = HorizontalAlignment.Left;
+
+        var menu = new ContextMenu();
+        foreach (var (action, label) in new[]
+                 {
+                     (RowAction.Auto, "自动（按预判）"),
+                     (RowAction.ForceImport, "导入锁定（一定要导入）"),
+                     (RowAction.ForceSkip, "不导入锁定（一定跳过）"),
+                 })
+        {
+            var captured = action;
+            var item = new MenuItem { Header = label, IsCheckable = true, IsChecked = plan.Action == action };
+            item.Click += (_, _) =>
+            {
+                plan.Action = captured;
+                BuildPlanRows();   // 改完状态立刻重画：颜色、计数、按钮文字一起刷新
+            };
+            menu.Items.Add(item);
+        }
+
+        state.ContextMenu = menu;
+        state.Click += (_, _) =>
+        {
+            menu.PlacementTarget = state;
+            menu.Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom;
+            menu.IsOpen = true;
+        };
+        Grid.SetRow(state, row);
+        Grid.SetColumn(state, 0);
+        _planGrid.Children.Add(state);
+
+        var symbol = _settings.CurrencySymbol;
+        var cells = new[]
+        {
+            record.Date.ToString("yyyy-MM-dd"),
+            record.Time.Length > 0 ? record.Time : "（空）",
+            record.Kind,
+            record.Category,
+            Valid.Money(record.Amount, symbol),
+            record.Note.Length > 0 ? record.Note : "（空）",
+            record.Owner.Length > 0 ? record.Owner : "（空）",
+            record.Source.Length > 0 ? record.Source : "（空）",
+        };
+
+        for (var index = 0; index < cells.Length; index++)
+        {
+            var cell = Ui.Label(cells[index], Ui.FontBody, willImport ? Ui.Text : Ui.Muted);
+            cell.Margin = new Thickness(10, 0, 10, 0);
+            cell.VerticalAlignment = VerticalAlignment.Center;
+            cell.TextTrimming = TextTrimming.CharacterEllipsis;
+            if (index == 5)
+            {
+                cell.HorizontalAlignment = HorizontalAlignment.Right;
+            }
+
+            Grid.SetRow(cell, row);
+            Grid.SetColumn(cell, index + 1);
+            _planGrid.Children.Add(cell);
+        }
+    }
+
+    private static string PlanStateText(RowPlan plan) => plan.Action switch
+    {
+        RowAction.ForceImport => "导入锁定",
+        RowAction.ForceSkip => "不导入锁定",
+        _ => "自动",
+    };
+
+
+    private static readonly string[] PlanHeaders = new[]
+    {
+        "状态", "日期", "时间", "类型", "分类", "金额", "短备注", "归属", "来源"
+    };
+
+    /// <summary>表头（与数据行共用列宽组，保证对齐）。</summary>
+
+    /// <summary>9 列：状态(小按钮) + 8 个字段；除「短备注」拉伸外，其余按内容共用宽度。</summary>
+
+
+
 
     // ---------------------------------------------------------------- 导入
 
@@ -371,7 +525,7 @@ public sealed class ImportWindow : Window
             try
             {
                 _settings.Save("导入默认策略", _options.Strategy);
-                var result = Exchange.Apply(_preview, _options);
+                var result = Exchange.Apply(_preview, _options, _plans);
                 ImportedCount = result.Added + result.Updated;
                 _resultText.Foreground = Ui.Text;
                 _resultText.Text = $"完成：新增 {result.Added} 条，更新 {result.Updated} 条，"

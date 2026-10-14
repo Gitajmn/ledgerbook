@@ -123,6 +123,16 @@ public sealed class MainWindow : Window
         return false;
     }
 
+    /// <summary>自动化用：启动后自动选中查询页明细的第一行（靠它截图验证选中配色）。</summary>
+    public bool AutomationSelectFirst { get; set; }
+
+    /// <summary>自动化截图时置 true：跳过"更新后首次打开"自动弹窗，免得干扰截图。</summary>
+    public bool SuppressWhatsNew { get; set; }
+
+    /// <summary>自动化用：启动后直接设定分类统计钻取（只看哪一类 / 高亮哪个分类）。</summary>
+    public string? AutomationStatsKind { get; set; }
+    public string? AutomationStatsCategory { get; set; }
+
     public MainWindow()
     {
         Paths.EnsureDirs();
@@ -165,6 +175,20 @@ public sealed class MainWindow : Window
         {
             SelectPage(Math.Clamp(InitialPage, 0, _pages.Count - 1));
             RefreshStatus();
+            if (AutomationSelectFirst)
+            {
+                QueryPage.SelectFirstRow();
+            }
+
+            if (!SuppressWhatsNew && WhatsNew.ConsumeUpdatedVersion(Paths.Version))
+            {
+                WhatsNewWindow.Show(this);   // 更新后首次打开：弹更新内容（首次安装不弹）
+            }
+
+            if (AutomationStatsCategory is not null || AutomationStatsKind is not null)
+            {
+                QueryPage.ApplyStatsSelection(AutomationStatsKind ?? "全部", AutomationStatsCategory);
+            }
             if (OverlayAfterLoad is not null)
             {
                 ShowOverlay(OverlayAfterLoad);

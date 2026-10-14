@@ -1,0 +1,151 @@
+using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Input;
+using System.Windows.Media;
+
+namespace LedgerBook.App;
+
+/// <summary>
+/// 「更新内容」窗口。
+///
+/// 关闭方式刻意做成"不必读完"：
+///   · 点**文本区域以外**的任何地方（四周留白 / 标题行 / 底部行 / 整个遮罩）—— 立刻关闭
+///   · 右下角「知道了」按钮
+///   · Esc 键
+/// 文本区域本身是只读可滚动的（内容长了可以滚，窗口高度也有上限）。
+/// </summary>
+public sealed class WhatsNewWindow : Window
+{
+    public WhatsNewWindow(string title, string body)
+    {
+        Title = "更新内容";
+        Width = 820;
+        Height = 640;
+        MinWidth = 560;
+        MinHeight = 380;
+        WindowStartupLocation = WindowStartupLocation.CenterOwner;
+        ShowInTaskbar = false;
+        Background = Ui.Background;
+        FontFamily = Ui.FontFamily;
+        UseLayoutRounding = true;
+        TextOptions.SetTextFormattingMode(this, TextFormattingMode.Display);
+
+        // ---------- 正文（只读、可滚、有最大高度）----------
+        var text = new TextBox
+        {
+            Text = body,
+            IsReadOnly = true,
+            TextWrapping = TextWrapping.Wrap,
+            AcceptsReturn = true,
+            BorderThickness = new Thickness(0),
+            Background = Ui.Field,
+            Foreground = Ui.Text,
+            FontSize = Ui.FontBody,
+            Padding = new Thickness(14, 12, 14, 12),
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+        };
+
+        var textShell = new Border
+        {
+            Background = Ui.Field,
+            BorderBrush = Ui.Line,
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(Ui.RadiusControl),
+            Child = text,
+            MinHeight = 180,
+        };
+
+        // ---------- 标题行 ----------
+        var head = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 10) };
+        head.Children.Add(Ui.Label(title, Ui.FontTitle, Ui.Text, bold: true));
+        var headHint = Ui.Hint("点正文以外的任何地方都能直接关闭（不必读完）");
+        headHint.VerticalAlignment = VerticalAlignment.Bottom;
+        headHint.Margin = new Thickness(12, 0, 0, 3);
+        head.Children.Add(headHint);
+
+        // ---------- 底部行 ----------
+        var foot = new Grid { Margin = new Thickness(0, 12, 0, 0) };
+        foot.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        foot.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        var footHint = Ui.Hint("内容长了可以在框里滚动；想细看可以到「设置 → 账户 → 查看更新内容」再打开一次");
+        footHint.VerticalAlignment = VerticalAlignment.Center;
+        foot.Children.Add(footHint);
+        var close = Ui.PrimaryButton("知道了（关闭）", Close, 36);
+        close.MinWidth = 150;
+        Grid.SetColumn(close, 1);
+        foot.Children.Add(close);
+
+        var card = new StackPanel { Margin = new Thickness(22) };
+        card.Children.Add(head);
+        card.Children.Add(textShell);
+        card.Children.Add(foot);
+
+        var cardShell = Ui.CardPanel(card, padding: 0);
+
+        // ---------- 遮罩：点它 = 关闭 ----------
+        var scrim = new Border
+        {
+            Background = new SolidColorBrush(Ui.ScrimColor),
+            Child = cardShell,
+        };
+        scrim.MouseLeftButtonDown += (_, _) => Close();
+
+        // 标题行 / 底部行也在正文之外 → 点它们同样关闭（卡片要吃掉事件，别让遮罩重复处理）
+        head.MouseLeftButtonDown += (_, _) => Close();
+        foot.MouseLeftButtonDown += (_, e) =>
+        {
+            // 点在「知道了」按钮上时由按钮自己处理
+            if (!IsInsideButton(e.OriginalSource as DependencyObject))
+            {
+                Close();
+            }
+        };
+
+        Content = scrim;
+        PreviewKeyDown += (_, e) =>
+        {
+            if (e.Key == Key.Escape)
+            {
+                Close();
+            }
+        };
+    }
+
+    private static bool IsInsideButton(DependencyObject? source)
+    {
+        while (source is not null)
+        {
+            if (source is Button)
+            {
+                return true;
+            }
+
+            source = source is Visual or System.Windows.Media.Media3D.Visual3D
+                ? VisualTreeHelper.GetParent(source)
+                : null;
+        }
+
+        return false;
+    }
+
+    /// <summary>弹给用户看（模态，关掉才回到主界面）。</summary>
+    public static void Show(Window? owner)
+        => Run(owner, "记账本 v" + Core.Paths.Version + " 更新内容");
+
+    /// <summary>从「查看更新内容」按钮打开：也走同一条路径（owner 为空时用当前活动窗口）。</summary>
+    public static void Run(Window? owner, string title)
+    {
+        var window = new WhatsNewWindow(title, WhatsNew.Text());
+        if (owner is not null && !ReferenceEquals(owner, window))
+        {
+            window.Owner = owner;
+        }
+        else
+        {
+            window.WindowStartupLocation = WindowStartupLocation.CenterScreen;
+        }
+
+        window.ShowDialog();
+    }
+}

@@ -89,7 +89,19 @@ $lines.Add("存档时间：" + (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'))
 $lines.Add("存档目录：$dst")
 $lines.Add("应用版本：$版本    运行时版本：8.0.31（私有运行时布局）")
 $lines.Add("构建方式：pwsh -File v0.2\工具\打包-自研安装包.ps1（应用 FDD + 私有运行时负载 + 自研安装器）")
-$lines.Add("自检结论：离线逻辑 35/35 + 甲安装器真装真卸 22/22 + 应用 91/91 全绿（工具\安装包自检-甲.ps1 -含应用自检）")
+$自检摘要 = ''
+$最新自检 = Get-ChildItem (Join-Path $temp '安装包自检-*.txt') -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+if ($最新自检) {
+    $m1 = (Select-String -Path $最新自检.FullName -Pattern 'RESULT PASS 通过 (\d+) / 失败 (\d+)' | Select-Object -Last 1)
+    $m2 = (Select-String -Path $最新自检.FullName -Pattern '^通过 (\d+) / (\d+)' | Select-Object -Last 1)
+    $m3 = (Select-String -Path $最新自检.FullName -Pattern '账本数据一个不少|更新后用户设置没被改' | Measure-Object).Count
+    $自检摘要 = "见 " + $最新自检.Name
+    if ($m1) { $自检摘要 = $自检摘要 + "（离线逻辑 " + $m1.Matches[0].Groups[1].Value + "/" + ([int]$m1.Matches[0].Groups[1].Value + [int]$m1.Matches[0].Groups[2].Value) }
+    if ($m2) { $自检摘要 = $自检摘要 + "，应用数据层 " + $m2.Matches[0].Groups[1].Value + "/" + $m2.Matches[0].Groups[2].Value }
+    if ($m3 -gt 0) { $自检摘要 = $自检摘要 + "，安装器真装真卸关键项通过 " + $m3 + " 项" }
+    $自检摘要 = $自检摘要 + "）"
+}
+$lines.Add("自检结论：" + $自检摘要)
 if ($追加说明) { $lines.Add("附加说明：$追加说明") }
 $lines.Add('')
 $lines.Add('【文件清单 + SHA256】')
@@ -124,3 +136,6 @@ Write-Host ''
 $lines | Where-Object { $_ -match '^  \[|^合计|^应用版本|^自检结论' } | ForEach-Object { Write-Host $_ }
 Write-Host ''
 Write-Host ("存档完成：" + $dst) -ForegroundColor Green
+
+# 清掉前面外部命令（robocopy/python 等）留下的退出码，避免调用方误判
+ = 0

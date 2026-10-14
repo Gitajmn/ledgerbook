@@ -43,6 +43,14 @@ public static class Charts
     private static Brush BrushAt(int index) => Freeze(Palette[index % Palette.Length]);
     private static Brush Freeze(Color color) { var brush = new SolidColorBrush(color); brush.Freeze(); return brush; }
     private static Color ColorAt(int index) => Palette[index % Palette.Length];
+    /// <summary>本次绘制要高亮的分类（空 = 都不变暗）。由 Draw 设置。</summary>
+    private static string? _highlight;
+    /// <summary>把颜色朝背景混合 = 变暗退到后面（浅色/深色/自定义配色下都成立）。</summary>
+    private static Color Dim(Color color) => Ui.Blend(color, Ui.CardColor, 0.62);
+    /// <summary>这个标签是否属于高亮分类（支持"收入·工资"这种带前缀的标签）。</summary>
+    private static bool IsHighlighted(string label) => _highlight is not null && (label == _highlight || label.EndsWith("·" + _highlight, StringComparison.Ordinal));
+    /// <summary>取色：细选了某个分类时，其它分类变暗。</summary>
+    private static Color Shade(string label, int index) => _highlight is null || IsHighlighted(label) ? ColorAt(index) : Dim(ColorAt(index));
     /// <summary>往白色靠（提亮）。不能拿 Darken 传 &gt;1：byte 转换会溢出回绕。</summary>
     private static Brush VerticalGradient(Color from, Color to) => Gradient(from, to, new Point(0, 0), new Point(0, 1));
 
@@ -137,7 +145,7 @@ public static class Charts
                 Width = 10,
                 Height = 10,
                 CornerRadius = new CornerRadius(2),
-                Background = BrushAt(item.Index),
+                Background = Freeze(Shade(item.Label, item.Index)),
                 VerticalAlignment = VerticalAlignment.Center,
                 Margin = new Thickness(0, 0, 6, 0)
             });
@@ -181,7 +189,7 @@ public static class Charts
         foreach (var item in series)
         {
             var sweep = item.Share * 360.0;
-            wedges.Add((-90.0 + acc, -90.0 + acc + sweep, ColorAt(item.Index), item.Index));
+            wedges.Add((-90.0 + acc, -90.0 + acc + sweep, Shade(item.Label, item.Index), item.Index));
             acc += sweep;
         }
 
@@ -200,8 +208,6 @@ public static class Charts
             {
                 Data = OuterWall(center, radius, from, to, flatten, depth),
                 Fill = wall,
-                Stroke = Brushes.White,
-                StrokeThickness = 1.0,
             });
         }
 
@@ -212,11 +218,48 @@ public static class Charts
             {
                 Data = TopFace(center, radius, wedge.A0, wedge.A1, flatten, series.Count == 1),
                 Fill = Freeze(wedge.Color),
-                Stroke = Brushes.White,
-                StrokeThickness = 1.0,
             });
         }
 
+
+        // ③ 白色分隔线：改成**径向直线**（每个分界画一次）——描边勾勒会在椭圆左右极点留下"竖刺"
+        if (wedges.Count > 1)   // 只有一个扇形时没有分界，画了会在正上方多一条白竖线
+        {
+            foreach (var wedge in wedges)
+            {
+                var edge = EllipsePoint(center, radius, wedge.A0, flatten);
+                canvas.Children.Add(new Line
+                {
+                    X1 = center.X,
+                    Y1 = center.Y,
+                    X2 = edge.X,
+                    Y2 = edge.Y,
+                    Stroke = Brushes.White,
+                    StrokeThickness = 1,
+                });
+            }
+        }
+
+        // ④ 外轮廓：**一整条闭合椭圆**（一条曲线，两端不会有描边端点）
+        canvas.Children.Add(new Path
+        {
+            Data = new EllipseGeometry(center, radius, radius * flatten),
+            Stroke = Brushes.White,
+            StrokeThickness = 1,
+            StrokeLineJoin = PenLineJoin.Bevel,
+            Fill = null,
+        });
+
+        // ⑤ 立体轮廓的另一半：**底边 + 前端两条竖切边**
+        //（直接用外壁自己的几何描白边：前弧 + 两端竖直落下的边 + 底弧）
+        canvas.Children.Add(new Path
+        {
+            Data = OuterWall(center, radius, 0, 180, flatten, depth),
+            Stroke = Brushes.White,
+            StrokeThickness = 1,
+            StrokeLineJoin = PenLineJoin.Bevel,   // 关键：默认 Miter 尖角会在竖直边上拉出白色小刺
+            Fill = null,
+        });
         var layout = new StackPanel { VerticalAlignment = VerticalAlignment.Top };
         layout.Children.Add(new Grid
         {
@@ -329,7 +372,7 @@ public static class Charts
         {
             var ratio = max > 0 ? (double)(item.Amount / max) : 0;
             var barHeight = Math.Max(6, plotHeight * ratio);
-            var color = ColorAt(item.Index);
+            var color = Shade(item.Label, item.Index);
 
             var column = new StackPanel
             {
@@ -397,6 +440,10 @@ public static class Charts
     public static UIElement Waffle(IReadOnlyList<CategoryTotal> data, double cell = 15)
     {
         var series = Series(data);
+        // 细选了某个分类时：其余分类的格子也变暗（只按调色板下标判断，不动循环结构）
+        var dimmed = _highlight is null
+            ? new System.Collections.Generic.HashSet<int>()
+            : series.Where(item => !IsHighlighted(item.Label)).Select(item => item.Index).ToHashSet();
         var panel = new StackPanel();
         if (series.Count == 0)
         {
@@ -427,7 +474,9 @@ public static class Charts
             {
                 Margin = new Thickness(1),
                 CornerRadius = new CornerRadius(2),
-                Background = index < 0 ? Freeze(Color.FromRgb(0xE8, 0xE8, 0xE8)) : BrushAt(index)
+                Background = index < 0
+                    ? Freeze(Color.FromRgb(0xE8, 0xE8, 0xE8))
+                    : Freeze(dimmed.Contains(index) ? Dim(ColorAt(index)) : ColorAt(index)),
             });
         }
 
@@ -470,8 +519,9 @@ public static class Charts
     /// 把分类小计画成对应的图形：**收入、支出分成两张图**（各自按本类的合计算占比）。
     /// 每张图头上写"合计金额"，图里只标各项百分比（具体金额看左边表格）。
     /// </summary>
-    public static UIElement Draw(string view, IReadOnlyList<CategoryTotal> data, bool compact = false)
+    public static UIElement Draw(string view, IReadOnlyList<CategoryTotal> data, bool compact = false, string? highlight = null)
     {
+        _highlight = highlight;   // 本次要高亮的分类；其余在 Shade/Dim 里变暗
         // 饼状图 / 方格图：**收入、支出两张图左右平列**（省一半高度，月度汇总里留白也少了）
         // 柱状图：仍上下排（柱子需要横向宽度），但整体更紧凑
         // 只有"紧凑模式"（月度汇总）才把饼图/方格图的收支两张图左右平列；查询统计里上下排（左右会挤掉下面的图例）

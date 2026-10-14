@@ -98,6 +98,9 @@ public sealed class Settings
     /// <summary>界面字号（WPF 用设备无关像素，13 ≈ 常规正文）。</summary>
     public int FontSize { get; set; } = 13;
     public string ImportStrategy { get; set; } = "跳过重复";
+
+    /// <summary>自定义导出目录（空 = 用默认的 数据根目录\导出）。导出 CSV 与月度汇总都跟着它走。</summary>
+    public string ExportDir { get; set; } = "";
     public bool AutoBackup { get; set; } = true;
 
     /// <summary>
@@ -152,6 +155,7 @@ public sealed class Settings
         settings.DetailLimit = (int)doc.GetNumber("明细最多显示", settings.DetailLimit);
         settings.ImportStrategy = doc.GetString("导入默认策略", settings.ImportStrategy);
         settings.BackupDirSetting = doc.GetString("备份目录", "");
+        settings.ExportDir = doc.GetString("导出目录", "");
         settings.FontSize = ParseFontSize(doc.GetString("字号", "标准（13）"), 13);
         settings.AutoBackup = doc.GetBool("自动备份", settings.AutoBackup);
         settings.BackupLimitMb = doc.GetInt("备份上限MB", settings.BackupLimitMb);

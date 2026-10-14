@@ -55,6 +55,21 @@ public static class Ui
     public static Color ScrimColor = Color.FromArgb(0x55, 0x1F, 0x23, 0x29);
 
     /// <summary>
+    /// 表格里"选中行"的底色（2026-10-13 修复）：
+    /// 原来写死成浅蓝 #EEF2FF —— 深色模式下是一块刺眼的白、字看不清，自定义配色也可能顶色。
+    /// 现在**由当前主题算出来**：把主色和卡片色按低比例混合 → 永远和背景同族，看得见但不跳。
+    /// </summary>
+    public static Brush SelectionFill = Freeze(Color.FromRgb(0xEE, 0xF2, 0xFF));
+
+    /// <summary>把两种颜色按比例混合（ratio=0 全 a，=1 全 b）。</summary>
+    public static Color Blend(Color a, Color b, double ratio)
+    {
+        ratio = Math.Clamp(ratio, 0, 1);
+        byte Mix(byte x, byte y) => (byte)Math.Round(x + ((y - x) * ratio));
+        return Color.FromArgb(Mix(a.A, b.A), Mix(a.R, b.R), Mix(a.G, b.G), Mix(a.B, b.B));
+    }
+
+    /// <summary>
     /// 深色模式不是把浅色反过来那么简单：彩色要**降饱和 + 提亮**，否则在黑底上会「发光刺眼」。
     /// 这里参照 Windows 11 深色主题与常见深色设计系统的做法。
     /// </summary>
@@ -121,6 +136,9 @@ public static class Ui
         IsDark = dark;
 
         ApplyPaletteOverrides();   // 管理员「方案配色」的覆盖（没配就什么都不做）
+
+        // 选中行底色：跟着"卡片色 + 主色"算，任何主题下都同族、看得见但不刺眼
+        SelectionFill = Freeze(Blend(CardColor, AccentColor, dark ? 0.22 : 0.13));
     }
 
     /// <summary>管理员设置里的方案配色覆盖：`背景=#RRGGBB;卡片=#RRGGBB;…`（空 = 用内置配色）。</summary>
@@ -1003,14 +1021,7 @@ public static class Ui
             {
                 separator.MouseLeftButtonDown += (_, e) =>
                 {
-                    _selected = separator;
-                    foreach (var entry in _entries)
-                    {
-                        entry.Element.Background = entry.Element == separator
-                            ? Freeze(Color.FromRgb(0xEE, 0xF2, 0xFF))
-                            : Brushes.Transparent;
-                    }
-
+                    Select(separator);
                     if (e.ClickCount >= 2)
                     {
                         OnActivate?.Invoke(payload);
@@ -1021,6 +1032,29 @@ public static class Ui
             _rows.Children.Add(separator);
             _entries.Add((separator, payload));
             return separator;
+        }
+
+        /// <summary>选中某一行（点击与自动化验证共用同一套逻辑）。</summary>
+        public void Select(Border row)
+        {
+            _selected = row;
+            foreach (var entry in _entries)
+            {
+                entry.Element.Background = entry.Element == row ? SelectionFill : Brushes.Transparent;
+            }
+        }
+
+        /// <summary>选中第一行有数据的行（给自动化截图验证用；返回是否有选中）。</summary>
+        public bool SelectFirstRow()
+        {
+            var first = _entries.FirstOrDefault(entry => entry.Payload is not null);
+            if (first.Element is null)
+            {
+                return false;
+            }
+
+            Select(first.Element);
+            return true;
         }
 
         public void AddEmpty(string message)

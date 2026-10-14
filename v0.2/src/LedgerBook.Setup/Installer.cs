@@ -297,7 +297,31 @@ public static class Theme
 public static class Program
 {
     public const string AppName = "记账本";
-    public const string Version = "2.0.1";
+        /// <summary>
+        /// 安装包版本号：从本程序的程序集读（打包脚本用 /p:Version= 传进来，与主程序同一源头），
+        /// 不再硬编码 —— 以前写死成 "2.0.1"，导致安装信息.txt 里的版本号是错的。
+        /// </summary>
+        public static string Version { get; } = ReadVersion();
+
+        private static string ReadVersion()
+        {
+            try
+            {
+                var attribute = System.Reflection.Assembly.GetExecutingAssembly()
+                    .GetCustomAttribute<System.Reflection.AssemblyInformationalVersionAttribute>();
+                var value = attribute?.InformationalVersion;
+                if (!string.IsNullOrWhiteSpace(value))
+                {
+                    var plus = value.IndexOf((char)43);   // 去掉 +commit 后缀
+                    return plus > 0 ? value[..plus] : value;
+                }
+            }
+            catch (Exception)
+            {
+            }
+
+            return "未知版本";
+        }
     public const string ExeName = "记账本.exe";
 
     [STAThread]
@@ -442,6 +466,87 @@ public static class Program
 
     public static string DefaultTarget() => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Programs", AppName);
+
+        /// <summary>
+        /// 版本"级别"：只取 A.B.C，忽略第 4 位（测试位）。
+        /// 按用户约定：**`.5` 测试版与同级的正式版同级** —— 例如 0.2.3.5 与 0.2.3 视为同一级。
+        /// </summary>
+        public static string Level(string version)
+        {
+            var text = (version ?? "").Trim().TrimStart((char)118, (char)86);   // 允许 v0.2.3 这种写法
+            var parts = text.Split((char)46);
+            return parts.Length >= 3 ? string.Join(".", parts[0], parts[1], parts[2]) : text;
+        }
+
+        /// <summary>比较两个版本级别：a &gt; b 返回正数，相等返回 0，a &lt; b 返回负数。</summary>
+        public static int CompareLevel(string a, string b)
+        {
+            var left = Level(a).Split((char)46);
+            var right = Level(b).Split((char)46);
+            for (var i = 0; i < 3; i++)
+            {
+                var x = i < left.Length && int.TryParse(left[i], out var xi) ? xi : 0;
+                var y = i < right.Length && int.TryParse(right[i], out var yi) ? yi : 0;
+                if (x != y)
+                {
+                    return x - y;
+                }
+            }
+
+            return 0;
+        }
+
+        /// <summary>目标目录里已安装的版本（注册表 → 目标目录的 exe → 安装信息.txt）；没装过返回空串。</summary>
+        public static string InstalledVersion(string target)
+        {
+            try
+            {
+                using var key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(
+                    @"Software\Microsoft\Windows\CurrentVersion\Uninstall\记账本");
+                if (key?.GetValue("DisplayVersion") is string fromRegistry && fromRegistry.Trim().Length > 0)
+                {
+                    return fromRegistry.Trim();
+                }
+            }
+            catch (Exception)
+            {
+            }
+
+            try
+            {
+                var exe = Path.Combine(target, ExeName);
+                if (File.Exists(exe))
+                {
+                    var version = System.Diagnostics.FileVersionInfo.GetVersionInfo(exe).FileVersion;
+                    if (!string.IsNullOrWhiteSpace(version))
+                    {
+                        return version.Trim();
+                    }
+                }
+            }
+            catch (Exception)
+            {
+            }
+
+            try
+            {
+                var info = Path.Combine(target, "安装信息.txt");
+                if (File.Exists(info))
+                {
+                    var first = File.ReadLines(info).FirstOrDefault() ?? "";
+                    var space = first.LastIndexOf((char)32);
+                    if (space > 0 && space + 1 < first.Length)
+                    {
+                        return first[(space + 1)..].Trim();
+                    }
+                }
+            }
+            catch (Exception)
+            {
+            }
+
+            return "";
+        }
 
     public static bool HasDotNetDesktop()
     {
@@ -740,6 +845,27 @@ public sealed class InstallerWindow : Window
             MessageBox.Show(this, $"无法写入安装位置：\n{target}{hint}\n\n提示：装在系统盘的程序目录（如 C:\\Program Files）需要管理员权限，建议装在 D 盘或用户目录。",
                 "这个位置不能写入", MessageBoxButton.OK, MessageBoxImage.Warning);
             return;
+        }
+
+        // ---------- 更新替代检查（2026-10-15 用户要求）----------
+        // 本安装包是"同名文件直接覆盖"式的安装；如果本机已经装了**同级或更新**的版本，
+        // 先问一句再动手：用户选「否」就终止安装（此时还没有写任何文件）。
+        var installed = Program.InstalledVersion(target);
+        if (installed.Length > 0 && Program.CompareLevel(installed, Program.Version) >= 0)
+        {
+            var answer = MessageBox.Show(this,
+                $"已安装 {installed} 版本，是否继续安装？{Environment.NewLine}{Environment.NewLine}"
+                + $"安装位置：{target}{Environment.NewLine}"
+                + $"本次安装包：{Program.Version}{Environment.NewLine}{Environment.NewLine}"
+                + "说明：同级或更新的版本会被本次安装覆盖；选「否」将终止安装，不会改动任何文件。",
+                "检测到已安装的版本", MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.No);
+            if (answer != MessageBoxResult.Yes)
+            {
+                _status.Text = $"已终止：本机已安装 {installed}，不低于本安装包（{Program.Version}）";
+                return;
+            }
+
+            _status.Text = $"按你的确认继续：覆盖已安装的 {installed}（本包 {Program.Version}）";
         }
 
         _cancelRequested = false;

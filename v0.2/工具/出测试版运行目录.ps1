@@ -86,6 +86,17 @@ $null = robocopy $appDir $run /E /NFL /NDL /NJH /NJS /NP /R:1 /W:1
 $files = Get-ChildItem $run -Recurse -File
 Write-Host ("  文件数 " + $files.Count + "，合计 " + [math]::Round(($files | Measure-Object Length -Sum).Sum / 1MB, 1) + " MB")
 
+# 2.5) 更新内容窗口的文本来源：把更新日志复制成 运行\更新内容.txt（用户要求：打包前复制更新日志即可）
+$更新日志 = Join-Path $repo "v0.2\v$版本\更新公告.md"          # 面向用户的公告优先
+if (-not (Test-Path $更新日志)) { $更新日志 = Join-Path $repo "v0.2\v$版本\本次修改.md" }
+if (-not (Test-Path $更新日志)) { $更新日志 = Join-Path $repo "v0.2\v$版本\开发日志.md" }
+if (Test-Path $更新日志) {
+    Copy-Item $更新日志 (Join-Path $run "更新内容.txt") -Force
+    Write-Host ("  更新内容.txt ← " + (Split-Path $更新日志 -Leaf))
+} else {
+    Write-Host "  注意：没找到更新日志，更新内容窗口会显示内置兜底文字" -ForegroundColor Yellow
+}
+
 # 3) 真跑一遍（截图 + 确认用的是目录内的运行时）
 if (-not $不出截图) {
     $shot = Join-Path $repo "截图\v$版本-应用.png"

@@ -10,15 +10,46 @@ public sealed class QueryPanel
 {
     private readonly Settings _settings;
     private readonly MainWindow _window;
-    private readonly ComboBox _yearBox;
-    private readonly ComboBox _monthBox;
+    private readonly DateField _startField;
+    private readonly DateField _endField;
     private readonly TextBlock _totals;
     private readonly Ui.DataTable _detailTable;
     private readonly Ui.DataTable _categoryTable;
+
+    /// <summary>选中明细表第一行（自动化截图验证选中行配色用）。</summary>
+    public bool SelectFirstRow() => _detailTable.SelectFirstRow();
+
+    /// <summary>自动化用：设定分类统计的钻取状态（类型 + 要高亮的分类）。</summary>
+    public void ApplyStatsSelection(string kind, string? category)
+    {
+        _statsKind = string.IsNullOrEmpty(kind) ? "全部" : kind;
+        _statsCategory = string.IsNullOrEmpty(category) || category == "全部" ? null : category;
+        _suppressStatsReload = true;
+        try
+        {
+            _kindBox.SelectedItem = _statsKind;
+            _categoryBox.SelectedItem = _statsCategory ?? "全部";
+        }
+        finally
+        {
+            _suppressStatsReload = false;
+        }
+
+        Reload();
+    }
     private readonly Grid _statsHolder = new();
     private readonly Dictionary<string, Panel> _statsPanels = new();
     private string _statsSignature = "";
     private string _statsViewsSignature = "";
+
+    /// <summary>分类统计：只看哪一类（全部 / 收入 / 支出）。</summary>
+    private string _statsKind = "全部";
+    /// <summary>分类统计：要高亮的分类（null = 不高亮，其余不正常变暗）。</summary>
+    private string? _statsCategory;
+    private ComboBox _kindBox = null!;
+    private ComboBox _categoryBox = null!;
+    /// <summary>防止"程序改下拉项"时反过来触发 Reload 造成递归。</summary>
+    private bool _suppressStatsReload;
 
     public Grid Root { get; }
 
@@ -70,6 +101,8 @@ public sealed class QueryPanel
     /// <summary>把分类小计铺到各个面板（表格填行、图形重画）。</summary>
     private void RenderStats(IReadOnlyList<CategoryTotal> data)
     {
+        // 只勾了收入或支出时，只画该类（其余分类不参与统计）
+        data = _statsKind == "全部" ? data : data.Where(item => item.Kind == _statsKind).ToList();
         var symbol = _settings.CurrencySymbol;
         foreach (var (view, body) in _statsPanels)
         {
@@ -104,7 +137,7 @@ public sealed class QueryPanel
             else
             {
                 // 图形放在可滚动容器里：面板再小也不会被裁掉
-                body.Children.Add(Ui.HoverScroll(Charts.Draw(view, data)));
+                body.Children.Add(Ui.HoverScroll(Charts.Draw(view, data, compact: false, _statsCategory)));
             }
         }
     }
@@ -122,49 +155,104 @@ public sealed class QueryPanel
         var today = DateOnly.FromDateTime(DateTime.Now);
 
         // ---------- 工具条 ----------
-        var bar = new StackPanel { Orientation = Orientation.Horizontal };
-        bar.Children.Add(Ui.Label("年份", Ui.FontBody, Ui.Muted));
-        var years = Enumerable.Range(today.Year - 6, 8).Select(year => year.ToString()).ToList();
-        var (yearShell, yearBox) = Ui.Select(years, 92, today.Year.ToString());
-        _yearBox = yearBox;
-        yearShell.Margin = new Thickness(8, 0, 14, 0);
-        bar.Children.Add(yearShell);
-
-        bar.Children.Add(Ui.Label("月份", Ui.FontBody, Ui.Muted));
-        var months = Enumerable.Range(1, 12).Select(month => month.ToString("D2")).ToList();
-        var (monthShell, monthBox) = Ui.Select(months, 76, today.Month.ToString("D2"));
-        _monthBox = monthBox;
-        monthShell.Margin = new Thickness(8, 0, 14, 0);
-        bar.Children.Add(monthShell);
-
-        var thisMonth = Ui.GhostButton("本月", () =>
+        var bar = new StackPanel { Orientation = Orientation.Vertical };
+        // 第一行：快捷范围（Core.Query.Presets 里已备好 10 个；v0.1 / v0.2.1 当时就是这些）
+        var presetsRow = new StackPanel { Orientation = Orientation.Horizontal };
+        foreach (var name in Query.Presets)
         {
-            var now = DateOnly.FromDateTime(DateTime.Now);
-            _yearBox.SelectedItem = now.Year.ToString();
-            _monthBox.SelectedItem = now.Month.ToString("D2");
-            Reload();
-        });
-        thisMonth.Margin = new Thickness(0, 0, 8, 0);
-        bar.Children.Add(thisMonth);
+            var captured = name;
+            var presetButton = Ui.GhostButton(name, () =>
+            {
+                var (presetStart, presetEnd) = Query.ResolvePreset(captured);
+                _startField.Set(presetStart);
+                _endField.Set(presetEnd);
+                Reload();
+            }, 30);
+            presetButton.FontSize = Ui.FontSmall;
+            presetButton.Margin = new Thickness(0, 0, 6, 0);
+            presetsRow.Children.Add(presetButton);
+        }
 
-        var lastMonth = Ui.GhostButton("上月", () =>
-        {
-            var previous = Valid.MonthBefore(new DateOnly(DateOnly.FromDateTime(DateTime.Now).Year, DateOnly.FromDateTime(DateTime.Now).Month, 1));
-            _yearBox.SelectedItem = previous.Year.ToString();
-            _monthBox.SelectedItem = previous.Month.ToString("D2");
-            Reload();
-        });
-        lastMonth.Margin = new Thickness(0, 0, 8, 0);
-        bar.Children.Add(lastMonth);
+        bar.Children.Add(presetsRow);
 
-        bar.Children.Add(Ui.PrimaryButton("查询", Reload));
+        // 第二行：起止日期（点日期框弹日历，不用手打）+ 查询/编辑/删除
+        var rangeRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 8, 0, 0) };
+        var monthStart = new DateOnly(today.Year, today.Month, 1);
+        var monthEnd = new DateOnly(today.Year, today.Month, DateTime.DaysInMonth(today.Year, today.Month));
+        _startField = new DateField(monthStart);
+        _endField = new DateField(monthEnd);
+        rangeRow.Children.Add(DateField.Range(new Dictionary<string, (DateOnly Start, DateOnly End)>(), _startField, _endField));
+
+        var queryButton = Ui.PrimaryButton("查询", Reload);
+        queryButton.Margin = new Thickness(12, 0, 0, 0);
+        rangeRow.Children.Add(queryButton);
 
         var editButton = Ui.GhostButton("编辑选中", EditSelected);
-        editButton.Margin = new Thickness(12, 0, 0, 0);
-        bar.Children.Add(editButton);
+        editButton.Margin = new Thickness(8, 0, 0, 0);
+        rangeRow.Children.Add(editButton);
         var deleteButton = Ui.GhostButton("删除选中", DeleteSelected);
         deleteButton.Margin = new Thickness(8, 0, 0, 0);
-        bar.Children.Add(deleteButton);
+        rangeRow.Children.Add(deleteButton);
+
+        bar.Children.Add(rangeRow);
+
+        // 第三行：分类统计（与 v0.1 一致 —— 类型 + 分类 两个独立下拉；分类只在图上高亮，其余变暗）
+        var statsRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 8, 0, 0) };
+        statsRow.Children.Add(Ui.Label("分类统计", Ui.FontBody, Ui.Muted));
+        var (kindShell, kindBox) = Ui.Select(new[] { "全部", Kinds.Income, Kinds.Expense }, 96, _statsKind);
+        _kindBox = kindBox;
+        kindShell.Margin = new Thickness(8, 0, 14, 0);
+        statsRow.Children.Add(kindShell);
+        statsRow.Children.Add(Ui.Label("分类", Ui.FontBody, Ui.Muted));
+        var categoryItems = new List<string> { "全部" };
+        try
+        {
+            var configured = Core.Config.LoadCategories();
+            foreach (var pair in configured)
+            {
+                foreach (var name in pair.Value)
+                {
+                    if (!categoryItems.Contains(name))
+                    {
+                        categoryItems.Add(name);
+                    }
+                }
+            }
+        }
+        catch (Exception)
+        {
+        }
+
+        var (catShell, catBox) = Ui.Select(categoryItems, 140, _statsCategory ?? "全部");
+        _categoryBox = catBox;
+        catShell.Margin = new Thickness(8, 0, 14, 0);
+        statsRow.Children.Add(catShell);
+        bar.Children.Add(statsRow);
+
+        kindBox.SelectionChanged += (_, _) =>
+        {
+            if (_suppressStatsReload)
+            {
+                return;
+            }
+
+            // 只换类型；**不动分类下拉**（v0.2 的 bug 就是这里把小分类跳回了「全部」）
+            _statsKind = kindBox.SelectedItem?.ToString() ?? "全部";
+            Reload();
+        };
+
+        catBox.SelectionChanged += (_, _) =>
+        {
+            if (_suppressStatsReload)
+            {
+                return;
+            }
+
+            // 分类只影响"图上高亮哪个分类"，不改类型、也不会把选择跳回「全部」（修 v0.2 的 bug）
+            var picked = catBox.SelectedItem?.ToString() ?? "全部";
+            _statsCategory = picked == "全部" ? null : picked;
+            Reload();
+        };
 
         var barCard = Ui.CardPanel(bar, padding: 14);
         Grid.SetRow(barCard, 0);
@@ -224,17 +312,9 @@ public sealed class QueryPanel
     /// <summary>按设置里的「查询默认范围」重设年月（设置页改完立即调用）。</summary>
     public void ApplyDefaultRange()
     {
-        var (start, _) = Query.ResolvePreset(_settings.QueryDefaultRange);
-        var years = _yearBox.Items.Cast<object>().Select(item => item.ToString()).ToList();
-        if (!years.Contains(start.Year.ToString()))
-        {
-            years.Add(start.Year.ToString());
-            years.Sort(StringComparer.Ordinal);
-            _yearBox.ItemsSource = years;
-        }
-
-        _yearBox.SelectedItem = start.Year.ToString();
-        _monthBox.SelectedItem = start.Month.ToString("D2");
+        var (start, end) = Query.ResolvePreset(_settings.QueryDefaultRange);
+        _startField.Set(start);
+        _endField.Set(end);
         Reload();
     }
 
@@ -307,14 +387,12 @@ public sealed class QueryPanel
 
     public void Reload()
     {
-        if (!int.TryParse(_yearBox.SelectedItem?.ToString(), out var year)
-            || !int.TryParse(_monthBox.SelectedItem?.ToString(), out var month))
+        var start = _startField.Value;
+        var end = _endField.Value;
+        if (end < start)
         {
-            return;
+            (start, end) = (end, start);   // 手选了反的也能用
         }
-
-        var start = new DateOnly(year, month, 1);
-        var end = new DateOnly(year, month, DateTime.DaysInMonth(year, month));
         var result = Query.Run(new QueryFilter
         {
             Start = start,
@@ -326,16 +404,24 @@ public sealed class QueryPanel
         _totals.Text = $"共 {result.TotalCount} 笔　|　收入 {Valid.Money(result.Income.ToString(CultureInfo.InvariantCulture), symbol)}"
                        + $"　|　支出 {Valid.Money(result.Expense.ToString(CultureInfo.InvariantCulture), symbol)}"
                        + $"　|　结余 {Valid.Money(result.Balance.ToString(CultureInfo.InvariantCulture), symbol)}"
-                       + (result.Truncated ? $"　（只显示前 {_settings.DetailLimit} 行）" : "");
+                       + (result.Truncated ? $"　（只显示前 {_settings.DetailLimit} 行）" : "") + (_statsCategory is null ? "" : $"　（明细只显示「{_statsCategory}」）");
 
         _detailTable.Clear();
-        if (result.Records.Count == 0)
+
+        // 选了某个分类：下方明细只显示该分类（图表仍画全部该类，只做高亮）
+        var detailRecords = _statsCategory is null
+            ? result.Records
+            : result.Records.Where(record => record.Category == _statsCategory).ToList();
+
+        if (detailRecords.Count == 0)
         {
-            _detailTable.AddEmpty("这个月还没有记录");
+            _detailTable.AddEmpty(_statsCategory is null
+                ? "这个范围还没有记录"
+                : $"「{_statsCategory}」在这个范围里没有记录");
         }
         else
         {
-            foreach (var record in result.Records)
+            foreach (var record in detailRecords)
             {
                 _detailTable.AddRow(new[]
                 {
@@ -372,6 +458,8 @@ public sealed class QueryPanel
 
         // 设置里勾选的视图变了：必须**重建分区**（原来只重画旧分区 → 表现成「设置没生效」）
         
+        // 分类统计的下拉：按"只看哪一类"过滤后重建分类清单（改下拉时用 _suppressStatsReload 防递归）
+
         var viewsSignature = string.Join(",", _settings.StatsViews);
         
         if (viewsSignature != _statsViewsSignature)
@@ -382,7 +470,7 @@ public sealed class QueryPanel
         }
 
         // 统计结果没变就不重画图表（切页/刷新时省下重建开销）
-        var signature = string.Join("|", result.ByCategory.Select(item => $"{item.Kind}{item.Category}{item.Count}{item.Amount}"));
+        var signature = string.Join("|", result.ByCategory.Select(item => $"{item.Kind}{item.Category}{item.Count}{item.Amount}")) + $"|{_statsKind}|{_statsCategory}";
         if (signature != _statsSignature)
         {
             _statsSignature = signature;

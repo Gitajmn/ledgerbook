@@ -533,11 +533,99 @@ public sealed class SettingsPanel
         page.Children.Add(Group("导出为 CSV",
             "带日期、编号、详细备注列，可以再导入回来；导出时会顺手给「来源」为空的记录补上当前设备名（只改导出文件，不动账本）",
             Ui.PrimaryButton("导出 CSV", ExportCsv, 34)));
-        page.Children.Add(Group("导出目录", "导出文件都放在这里",
-            Ui.InfoRow("当前导出目录", Paths.ExportDir, "复制路径", () => CopyPath(Paths.ExportDir))));
+        // ---------- 导出目录：可以直接改（导出 CSV 与月度汇总都跟着它走）----------
+        var exportPathBox = new TextBox
+        {
+            Text = Paths.ExportDir,
+            Width = 520,
+            FontSize = Ui.FontSmall,
+            Foreground = Ui.Text,
+            Background = Ui.Field,
+            BorderBrush = Ui.Line,
+            BorderThickness = new Thickness(1),
+            Padding = new Thickness(8, 6, 8, 6),
+            VerticalContentAlignment = VerticalAlignment.Center,
+        };
+
+        void ApplyExportDir(string dir)
+        {
+            var value = (dir ?? "").Trim();
+            if (value.Length > 0)
+            {
+                try
+                {
+                    Directory.CreateDirectory(value);
+                }
+                catch (Exception exc)
+                {
+                    _window.ShowError("这个目录不能用：" + exc.Message);
+                    return;
+                }
+            }
+
+            Paths.ExportDirOverride = value;
+            _settings.ExportDir = value;
+            _settings.Save("导出目录", value);
+            Core.Log.Info("导出目录改为：" + Paths.ExportDir);
+            _window.SetStatus("导出目录已改为：" + Paths.ExportDir);
+            _window.RebuildUi();
+        }
+
+        var exportButtons = new StackPanel { Orientation = Orientation.Horizontal };
+        var exportPick = Ui.GhostButton("选择文件夹…", () =>
+        {
+            var picker = new Microsoft.Win32.OpenFolderDialog { Title = "选择导出文件夹" };
+            try
+            {
+                if (Directory.Exists(Paths.ExportDir))
+                {
+                    picker.InitialDirectory = Paths.ExportDir;
+                }
+            }
+            catch (Exception)
+            {
+            }
+
+            if (picker.ShowDialog(_window) == true)
+            {
+                ApplyExportDir(picker.FolderName);
+            }
+        }, 34);
+        exportButtons.Children.Add(exportPick);
+
+        var exportUseTyped = Ui.GhostButton("用上面填的路径", () => ApplyExportDir(exportPathBox.Text), 34);
+        exportUseTyped.Margin = new Thickness(8, 0, 0, 0);
+        exportButtons.Children.Add(exportUseTyped);
+
+        var exportReset = Ui.GhostButton("恢复默认", () => ApplyExportDir(""), 34);
+        exportReset.Margin = new Thickness(8, 0, 0, 0);
+        exportButtons.Children.Add(exportReset);
+
+        var exportCopy = Ui.GhostButton("复制路径", () => CopyPath(Paths.ExportDir), 34);
+        exportCopy.Margin = new Thickness(8, 0, 0, 0);
+        exportButtons.Children.Add(exportCopy);
+
+        var exportBox = new StackPanel();
+        exportBox.Children.Add(exportPathBox);
+        var exportHint = Ui.Hint(Paths.ExportDirOverride.Length > 0
+            ? "当前是自定义目录；导出 CSV 与月度汇总都会写到这里"
+            : "当前是默认目录（数据根目录\\导出）；也可以改成别的文件夹");
+        exportHint.Margin = new Thickness(0, 6, 0, 8);
+        exportHint.TextWrapping = TextWrapping.Wrap;
+        exportBox.Children.Add(exportHint);
+        exportBox.Children.Add(exportButtons);
+        page.Children.Add(Group("导出目录", "导出文件都放在这里；「月度汇总」的导出也走这个目录", exportBox));
+        // 注意：两个按钮必须先放进 StackPanel 再挂到 page 上。
+        // 之前把 Ui.GhostButton(...) 写在 page.Children.Add(Group(...)) 的**后面** →
+        // 按钮创建了却没有父级，界面上根本不显示（"导入没有粘贴按钮"就是这个原因）。
+        var importButtons = new StackPanel { Orientation = Orientation.Horizontal };
+        importButtons.Children.Add(Ui.GhostButton("选择文件并预览…", PickAndImport, 34));
+        var pasteButton = Ui.GhostButton("粘贴文本导入", PasteImport, 34);
+        pasteButton.Margin = new Thickness(8, 0, 0, 0);
+        importButtons.Children.Add(pasteButton);
         page.Children.Add(Group("导入别人的账",
-            "先看清要导入什么、可以改「保存为谁」「是否记设备来源」，确认后才写入账本",
-            Ui.GhostButton("选择文件并预览…", PickAndImport, 34)));
+            "先看清要导入什么、可以改「保存为谁」「是否记设备来源」，确认后才写入账本；也可以直接粘贴文本导入（配合免费对话软件）",
+            importButtons));
         return page;
     }
 
@@ -599,6 +687,35 @@ public sealed class SettingsPanel
         catch (Exception exc)
         {
             _window.ShowError("打不开这个文件：" + exc.Message);
+        }
+    }
+
+    /// <summary>
+    /// 粘贴文本导入：把账单截图 + 模板发给免费对话软件，回贴文本即可导入（不用生成文件）。
+    /// 确认后写成临时 CSV，再走与「选择文件导入」**完全相同**的二次确认界面（ImportWindow）。
+    /// </summary>
+    private void PasteImport()
+    {
+        try
+        {
+            var dialog = new PasteImportWindow(_settings) { Owner = _window };
+            if (dialog.ShowDialog() != true || dialog.TempPath is null)
+            {
+                return;
+            }
+
+            var window = new ImportWindow(_settings, dialog.TempPath) { Owner = _window };
+            window.ShowDialog();
+            if (window.ImportedCount > 0)
+            {
+                Core.Log.Info($"粘贴导入完成：处理 {window.ImportedCount} 条");
+                _window.RebuildUi();
+                _window.NotifyDataChanged();
+            }
+        }
+        catch (Exception exc)
+        {
+            _window.ShowError("粘贴导入失败：" + exc.Message);
         }
     }
 
@@ -709,7 +826,7 @@ public sealed class SettingsPanel
     {
         var page = new StackPanel();
         page.Children.Add(Group("用户码",
-            "导出/导入时用它区分「这是谁的账」；建议不要改",
+            "导出/导入时用它区分「这是谁的账」",
             Ui.InfoRow("你的用户码", _account.UserCode, "复制", () =>
             {
                 try
@@ -778,7 +895,18 @@ public sealed class SettingsPanel
                 _window.ShowToast($"已经点击 {versionClicks} 次");
             }
         };
-        page.Children.Add(Group("当前版本", "报问题或对账时带上这个版本号", versionHit));
+
+        // 大按钮放在版本行**右边并留出间距**：想了解本次更新的人一眼能看到，也不会误点到版本号（版本号连点 6 次是管理员入口）
+        var versionBlock = new StackPanel();
+        versionBlock.Children.Add(versionHit);
+        var whatsNewButton = Ui.PrimaryButton("查看更新内容", () => WhatsNewWindow.Show(_window), 40);
+        whatsNewButton.MinWidth = 190;
+        whatsNewButton.HorizontalAlignment = HorizontalAlignment.Left;
+        whatsNewButton.Margin = new Thickness(0, 10, 0, 0);
+        versionBlock.Children.Add(whatsNewButton);
+        page.Children.Add(Group("当前版本",
+            "报问题或对账时带上这个版本号；点下面的按钮可以随时再看这次的更新内容",
+            versionBlock));
         return page;
     }
 
