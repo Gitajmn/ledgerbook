@@ -92,7 +92,18 @@ public static class WhatsNew
 
         if (seen.Length == 0)
         {
-            Log.Info($"首次安装（记录版本 {currentVersion}）→ 按约定不弹更新内容");
+            // 状态文件是 0.2.4 才引入的：老版本（如 0.2.3）的安装里没有它，
+            // 所以不能一律当成"首次安装" —— 再看一眼有没有账本数据：
+            //   有账 → 是老用户升级上来的 → 按"更新"处理，弹更新内容；
+            //   没账 → 真·新装 → 按约定不弹。
+            updated = HasExistingData();
+            Log.Info(updated
+                ? "没有状态文件但已有账本数据 → 视为更新（老版本升级）→ 弹更新内容"
+                : "首次安装（没有账本数据）→ 按约定不弹更新内容");
+        }
+        else if (updated)
+        {
+            Log.Info($"更新后首次打开：{seen} → {currentVersion} → 弹更新内容");
         }
         else if (updated)
         {
@@ -103,6 +114,41 @@ public static class WhatsNew
     }
 
     /// <summary>读状态文件（读不到就当作"没见过任何版本"，也就是首次安装）。</summary>
+
+    /// <summary>
+    /// 数据目录里有没有真正的账（判断"这次到底是新装还是老用户升级"）。
+    /// 只看有没有内容：新建的空 jsonl（0~2 字节）不算。
+    /// </summary>
+    private static bool HasExistingData()
+    {
+        try
+        {
+            var dataDir = Paths.DataDir;
+            if (Directory.Exists(dataDir))
+            {
+                foreach (var file in Directory.EnumerateFiles(dataDir, "*.jsonl", SearchOption.AllDirectories))
+                {
+                    if (new FileInfo(file).Length > 2)
+                    {
+                        return true;
+                    }
+                }
+            }
+
+            var backupDir = Paths.BackupDir;
+            if (Directory.Exists(backupDir)
+                && Directory.EnumerateFiles(backupDir, "*", SearchOption.AllDirectories).Any())
+            {
+                return true;
+            }
+        }
+        catch (Exception)
+        {
+        }
+
+        return false;
+    }
+
     public static string ReadState()
     {
         try

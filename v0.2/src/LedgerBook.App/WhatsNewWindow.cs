@@ -56,7 +56,8 @@ public sealed class WhatsNewWindow : Window
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(Ui.RadiusControl),
             Child = text,
-            MinHeight = 180,
+            MinHeight = 160,
+            // 高度由外层 Grid 的星号行决定 → 内容超出时 TextBox 自己出滚动条
         };
 
         // ---------- 标题行 ----------
@@ -92,10 +93,17 @@ public sealed class WhatsNewWindow : Window
         Grid.SetColumn(footButtons, 1);
         foot.Children.Add(footButtons);
 
-        var card = new StackPanel { Margin = new Thickness(22) };
+        // 卡片用 Grid（Auto / * / Auto）：正文那一行拿"剩余高度" → 内容长了才会出现滚动条。
+        // 原来用 StackPanel，会给子元素**无限高度**，TextBox 被撑到全文高度、滚动条永远不出现。
+        var card = new Grid { Margin = new Thickness(22) };
+        card.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });                        // 标题行
+        card.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });   // 正文
+        card.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });                        // 底部行
         card.Children.Add(head);
         card.Children.Add(textShell);
         card.Children.Add(foot);
+        Grid.SetRow(textShell, 1);
+        Grid.SetRow(foot, 2);
 
         var cardShell = Ui.CardPanel(card, padding: 0);
 
