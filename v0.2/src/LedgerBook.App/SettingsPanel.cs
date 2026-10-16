@@ -156,7 +156,7 @@ public sealed class SettingsPanel
         {
             var selected = i == index;
             var button = _sections[i].Button;
-            button.Background = selected ? Ui.Hover : Ui.Transparent;
+            button.Background = selected ? Ui.SelectedFill : Ui.Transparent;
             button.Foreground = selected ? Ui.Text : Ui.Muted;
             button.FontWeight = selected ? FontWeights.SemiBold : FontWeights.Normal;
         }
@@ -214,7 +214,9 @@ public sealed class SettingsPanel
             "浅色与深色两套配色都为彩色单独调过（降饱和、提亮），深色下不刺眼；「跟随系统」跟随 Windows 的应用主题。",
             ThemeCards()));
         page.Children.Add(Group("界面字号", "改完立即生效，所有页面一起变", FontSizeSelect()));
-        page.Children.Add(Group("货币符号", "显示在金额前面，例如 ¥ / $ / €", CurrencyInput()));
+        page.Children.Add(Group("货币符号",
+            "显示在金额前面。单位是开放的：元 / 欧元符号 / USD / 积分 都行（最多 " + Core.UnitRule.MaxLength + " 个字，不能有空格换行）；纯数字的单位会提示一下",
+            CurrencyInput()));
         page.Children.Add(Group("数据目录", "账本就存在这里；装在受保护目录时会自动换到用户目录",
             Ui.InfoRow("当前数据目录", Paths.Root, "复制路径", () => CopyPath(Paths.Root))));
         return page;
@@ -278,7 +280,7 @@ public sealed class SettingsPanel
             var selected = mode == Ui.Current;
             card.BorderBrush = selected ? Ui.Accent : Ui.Line;
             card.BorderThickness = new Thickness(selected ? 2 : 1);
-            card.Background = selected ? Ui.Hover : Ui.Card;
+            card.Background = selected ? Ui.SelectedFill : Ui.Card;
         }
 
         return row;
@@ -316,14 +318,22 @@ public sealed class SettingsPanel
         void Commit()
         {
             var text = box.Text.Trim();
-            if (text.Length == 0 || text.Length > 4)
+            var reason = Core.UnitRule.Check(text);
+            if (reason.Length > 0)
             {
                 box.Text = _settings.CurrencySymbol;
                 shell.BorderBrush = Ui.Expense;
+                _window.SetStatus("单位没改：" + reason);   // 原来只把边框变红，用户不知道哪儿不对
                 return;
             }
 
             shell.BorderBrush = Ui.Line;
+            if (Core.UnitRule.LooksNumeric(text))
+            {
+                // 纯数字单位会把金额显示成 32112.00，容易看错；但单位是开放的，只提示不阻止
+                _window.SetStatus($"提示：单位是纯数字（{text}），金额会显示成 {text}12.00 这种样子，容易看错");
+            }
+
             _settings.CurrencySymbol = text;
             _settings.Save("货币符号", text);
             _window.RebuildUi();
@@ -679,6 +689,9 @@ public sealed class SettingsPanel
             window.ShowDialog();
             if (window.ImportedCount > 0)
             {
+                _window.RecordPage.AddToSession(window.AddedRecords);   // 导入的记录也算「本次已记」
+            }
+            {
                 Core.Log.Info($"导入完成：处理 {window.ImportedCount} 条");
                 _window.RebuildUi();
                 _window.NotifyDataChanged();
@@ -707,6 +720,9 @@ public sealed class SettingsPanel
             var window = new ImportWindow(_settings, dialog.TempPath) { Owner = _window };
             window.ShowDialog();
             if (window.ImportedCount > 0)
+            {
+                _window.RecordPage.AddToSession(window.AddedRecords);   // 导入的记录也算「本次已记」
+            }
             {
                 Core.Log.Info($"粘贴导入完成：处理 {window.ImportedCount} 条");
                 _window.RebuildUi();

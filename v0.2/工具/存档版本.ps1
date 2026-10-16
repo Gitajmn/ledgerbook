@@ -90,7 +90,7 @@ $lines.Add("存档目录：$dst")
 $lines.Add("应用版本：$版本    运行时版本：8.0.31（私有运行时布局）")
 $lines.Add("构建方式：pwsh -File v0.2\工具\打包-自研安装包.ps1（应用 FDD + 私有运行时负载 + 自研安装器）")
 $自检摘要 = ''
-$最新自检 = Get-ChildItem (Join-Path $temp '安装包自检-*.txt') -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+$最新自检 = Get-ChildItem (Join-Path (Join-Path $repo '临时') '安装包自检-*.txt') -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1
 if ($最新自检) {
     $m1 = (Select-String -Path $最新自检.FullName -Pattern 'RESULT PASS 通过 (\d+) / 失败 (\d+)' | Select-Object -Last 1)
     $m2 = (Select-String -Path $最新自检.FullName -Pattern '^通过 (\d+) / (\d+)' | Select-Object -Last 1)
@@ -138,4 +138,4 @@ Write-Host ''
 Write-Host ("存档完成：" + $dst) -ForegroundColor Green
 
 # 清掉前面外部命令（robocopy/python 等）留下的退出码，避免调用方误判
- = 0
+ $global:LASTEXITCODE = 0

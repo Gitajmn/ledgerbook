@@ -203,11 +203,26 @@ case "--trace":
         Diag.Trace("Main 开始");
 
         // 单实例：已经在运行就把已有窗口调到前台，不再开第二个（避免两个窗口抢同一份账本）
-        _singleInstance = new System.Threading.Mutex(true, @"Local\LedgerBook-记账本", out var isFirst);
-        if (!isFirst)
+        // 例外：自动化（截图/预览类参数）**不参与**单实例检查 ——
+        // 否则用户正开着记账本时，安装包自检的"装好后跑一次截图"会被静默挡掉（表现为退出码 0 但没有截图）。
+        var automationRun = screenshot is not null
+                            || importPreview is not null
+                            || pasteImport
+                            || whatsNew
+                            || dialog is not null
+                            || detailPreview
+                            || confirmPreview
+                            || chartPreview is not null
+                            || openCalendar
+                            || pageCycle > 0;
+        if (!automationRun)
         {
-            FocusRunningWindow();
-            return 0;
+            _singleInstance = new System.Threading.Mutex(true, @"Local\LedgerBook-记账本", out var isFirst);
+            if (!isFirst)
+            {
+                FocusRunningWindow();
+                return 0;
+            }
         }
 
         var app = new Application { ShutdownMode = ShutdownMode.OnMainWindowClose };   // 关闭主窗口即退出（否则会残留后台进程）

@@ -9,6 +9,8 @@ public sealed class QueryFilter
     public string? Category { get; set; }
     public string? Keyword { get; set; }
     public string? Owner { get; set; }
+    /// <summary>只看某个单位的账（空 = 不限）。</summary>
+    public string? Unit { get; set; }
     /// <summary>0 = 不限。</summary>
     public int Limit { get; set; } = 500;
 }
@@ -189,6 +191,17 @@ public static class Query
         if (!string.IsNullOrWhiteSpace(filter.Owner) && filter.Owner != "全部" && record.Owner != filter.Owner)
         {
             return false;
+        }
+
+        // 单位：留空的记录算"默认单位"，所以比较时把它当成当前默认单位
+        if (!string.IsNullOrWhiteSpace(filter.Unit) && filter.Unit != "全部")
+        {
+            var fallbackUnit = Settings.Load().CurrencySymbol;
+            var recordUnit = record.Unit.Length > 0 ? record.Unit : fallbackUnit;
+            if (!string.Equals(recordUnit, filter.Unit, StringComparison.Ordinal))
+            {
+                return false;
+            }
         }
 
         if (!string.IsNullOrWhiteSpace(filter.Keyword))

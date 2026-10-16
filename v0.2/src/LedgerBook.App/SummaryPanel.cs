@@ -20,6 +20,14 @@ public sealed class SummaryPanel
     private readonly Dictionary<string, Panel> _statsPanels = new();
     private string _statsViewsSignature = "";
 
+    /// <summary>单位下拉里的「全部单位」这一项。</summary>
+    private const string AllUnits = "全部单位";
+    /// <summary>月度汇总只看哪个单位（null = 全部单位）。笔数、收支、结余与图表都用同一个口径。</summary>
+    private string? _unitFilter;
+    private ComboBox _unitBox = null!;
+    /// <summary>程序改下拉项时不要反过来触发 Reload。</summary>
+    private bool _suppressUnitReload;
+
     public Grid Root { get; }
 
     public SummaryPanel(Settings settings, MainWindow window)
@@ -50,6 +58,24 @@ public sealed class SummaryPanel
         bar.Children.Add(monthShell);
 
         bar.Children.Add(Ui.PrimaryButton("生成汇总", Reload));
+
+        // 单位：笔数、收支、结余与下面所有图表都用同一个口径
+        bar.Children.Add(Ui.Label("单位", Ui.FontBody, Ui.Muted));
+        var (unitShell, unitBox) = Ui.Select(new[] { AllUnits }, 110, AllUnits);
+        _unitBox = unitBox;
+        unitShell.Margin = new Thickness(8, 0, 14, 0);
+        bar.Children.Add(unitShell);
+        unitBox.SelectionChanged += (_, _) =>
+        {
+            if (_suppressUnitReload)
+            {
+                return;
+            }
+
+            var picked = unitBox.SelectedItem?.ToString() ?? AllUnits;
+            _unitFilter = picked == AllUnits ? null : picked;
+            Reload();
+        };
 
         var exportButton = Ui.GhostButton("导出月度汇总 CSV", Export);
         exportButton.Margin = new Thickness(8, 0, 0, 0);
@@ -111,12 +137,49 @@ public sealed class SummaryPanel
             return;
         }
 
-        var summary = Summary.Build(year, month);
-        var symbol = _settings.CurrencySymbol;
+        // 单位下拉：列出这个月出现过的单位（老账没有单位 → 算默认单位）。
+        // 程序改下拉项时用 _suppressUnitReload 挡住 SelectionChanged，避免递归 Reload。
+        var fallbackUnit = _settings.CurrencySymbol;
+        var monthStart = new DateOnly(year, month, 1);
+        var monthEnd = new DateOnly(year, month, DateTime.DaysInMonth(year, month));
+        var monthAll = Query.Run(new QueryFilter { Start = monthStart, End = monthEnd, Limit = 0 }).Records;
+        var unitItems = new List<string> { AllUnits };
+        foreach (var item in monthAll)
+        {
+            var unit = item.Unit.Length > 0 ? item.Unit : fallbackUnit;
+            if (!unitItems.Contains(unit))
+            {
+                unitItems.Add(unit);
+            }
+        }
+
+        _suppressUnitReload = true;
+        try
+        {
+            _unitBox.ItemsSource = unitItems;
+            if (_unitFilter is not null && unitItems.Contains(_unitFilter))
+            {
+                _unitBox.SelectedItem = _unitFilter;
+            }
+            else
+            {
+                _unitBox.SelectedItem = AllUnits;
+                _unitFilter = null;
+            }
+        }
+        finally
+        {
+            _suppressUnitReload = false;
+        }
+
+        // 笔数、收支、结余：全部来自同一个（按单位过滤后的）汇总对象 → 口径一定一致
+        var summary = Summary.Build(year, month, _unitFilter);
+        var symbol = _unitFilter ?? _settings.CurrencySymbol;
         _totals.Text = $"{Paths.MonthName(year, month)}：{summary.Count} 笔"
                        + $"　|　收入 {Valid.Money(summary.Income.ToString(CultureInfo.InvariantCulture), symbol)}"
                        + $"　|　支出 {Valid.Money(summary.Expense.ToString(CultureInfo.InvariantCulture), symbol)}"
-                       + $"　|　结余 {Valid.Money(summary.Balance.ToString(CultureInfo.InvariantCulture), symbol)}";
+                       + $"　|　结余 {Valid.Money(summary.Balance.ToString(CultureInfo.InvariantCulture), symbol)}"
+                       + (_unitFilter is null ? "　（含全部单位）" : $"　（只算单位：{_unitFilter}）");
 
         _table.Clear();
         var hasAny = false;
@@ -140,11 +203,13 @@ public sealed class SummaryPanel
         }
 
         // 分类统计图（视图由设置决定；收入/支出各一张由 Charts.Draw 内部拆开）
+        // 与上面的汇总同口径：选了单位就只画这个单位
         var category = Query.Run(new QueryFilter
         {
-            Start = new DateOnly(year, month, 1),
-            End = new DateOnly(year, month, DateTime.DaysInMonth(year, month)),
+            Start = monthStart,
+            End = monthEnd,
             Limit = 0,
+            Unit = _unitFilter,
         }).ByCategory;
         var viewsSignature = string.Join(",", _settings.SummaryStatsViews);
         if (viewsSignature != _statsViewsSignature)
@@ -256,14 +321,14 @@ public sealed class SummaryPanel
 
         try
         {
-            var summary = Summary.Build(year, month);
+            var summary = Summary.Build(year, month, _unitFilter);   // 与界面同口径：选了单位就只导这个单位
             if (summary.Count == 0)
             {
                 _window.SetStatus("这个月还没有记录，没什么可导出的");
                 return;
             }
 
-            var path = Summary.ExportCsv(summary, _settings.CurrencySymbol);
+            var path = Summary.ExportCsv(summary, _unitFilter ?? _settings.CurrencySymbol, _unitFilter);
             _window.SetStatus($"已导出：{path}");
         }
         catch (Exception exc)

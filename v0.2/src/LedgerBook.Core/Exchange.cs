@@ -73,6 +73,9 @@ public sealed class ImportResult
     public int Skipped { get; set; }
     public int Failed { get; set; }
     public List<string> Days { get; } = new();
+
+    /// <summary>真正新增进去的记录（导入完成后要放进「本次已记」列表，所以带上）。</summary>
+    public List<Record> AddedRecords { get; } = new();
 }
 
 /// <summary>
@@ -147,7 +150,12 @@ public static class Exchange
         builder.Append(string.Join(',', ExportHeader.Select(Escape))).Append("\r\n");
         foreach (var record in result.Records)
         {
-            builder.Append(string.Join(',', Fields.Pairs(record).Select(pair => Escape(pair.Value)))).Append("\r\n");
+            // 逐行带"这条账自己的单位"：老账（没有单位）导出时补成默认单位，
+            // 这样导出的文件用 Excel 打开时每一行都有单位可看（落盘数据不动）。
+            builder.Append(string.Join(',', Fields.Pairs(record)
+                .Select(pair => Escape(pair.Name == Fields.Unit && pair.Value.Length == 0
+                    ? Settings.Load().CurrencySymbol
+                    : pair.Value)))).Append("\r\n");
         }
 
         Table.AtomicWrite(path, builder.ToString(), new UTF8Encoding(true));
@@ -179,8 +187,13 @@ public static class Exchange
             }
 
             // 主设备列：无论来源怎么处理，都写"导出这份文件的设备"
+            // 单位列：老账（没有单位）补成默认单位 —— 同理，只影响导出文件，不动落盘数据
             var values = ExportHeader
-                .Select(name => name == Fields.Source ? source : Fields.Get(record, name))
+                .Select(name => name == Fields.Source
+                    ? source
+                    : name == Fields.Unit && Fields.Get(record, name).Length == 0
+                        ? Settings.Load().CurrencySymbol
+                        : Fields.Get(record, name))
                 .Append(deviceName);
             builder.Append(string.Join(',', values.Select(Escape))).Append("\r\n");
         }
@@ -325,6 +338,15 @@ public static class Exchange
                 {
                     data = Storage.ReadDay(record.Date);
                     days[record.Date] = data;
+
+                    // 导入会保留来源文件的编号（这样导出/导入能往返）；
+                    // 但如果**这一天的账本里已经有同一个编号**（同一个文件导了两次、或两个来源编号撞车），
+                    // 就必须换一个新编号 —— 否则一天里出现重复编号，而删除是按编号删的，
+                    // 会把"兄弟"一起删掉（用户 2026-10-16 报的 bug）。
+                    if (data.Records.Any(item => item.Id == record.Id))
+                    {
+                        record.Id = Storage.NextId(record.Date, data.Records);
+                    }
                 }
 
                 var duplicate = FindDuplicate(data.Records, record);
@@ -347,6 +369,7 @@ public static class Exchange
                         case "全部追加":
                             data.Records.Add(record);
                             result.Added++;
+                            result.AddedRecords.Add(record);
                             dirty.Add(record.Date);
                             break;
                         default:
@@ -359,6 +382,7 @@ public static class Exchange
 
                 data.Records.Add(record);
                 result.Added++;
+                result.AddedRecords.Add(record);
                 dirty.Add(record.Date);
             }
             catch (Exception)
@@ -416,6 +440,27 @@ public static class Exchange
                     continue;
                 }
 
+                // 兜底：判定可能是旧的（比如界面上的 plans 是打开窗口时算的）。
+                // 只对"自动"行做这件事 —— 用户手动锁了"导入锁定"的行必须照办。
+                if (plan.Action == RowAction.Auto && !plan.Exact)
+                {
+                    var again = data.Records.FirstOrDefault(item =>
+                        Fingerprint0(item) == Fingerprint0(record)
+                        || (Fingerprint1(item) == Fingerprint1(record) && NoteAlike(NormalizeNote(item.Note), NormalizeNote(record.Note))));
+                    if (again != null)
+                    {
+                        result.Skipped++;
+                        continue;
+                    }
+                }
+
+                // 导入保留来源编号（导出/导入可往返）；但这一天若**已有同一编号**（同一文件导两次、或来源撞车），
+                // 必须换新编号 —— 否则一天里出现重复编号，而删除是按编号删的，会连累"兄弟"（用户 2026-10-16 报的 bug）。
+                if (data.Records.Any(item => item.Id == record.Id))
+                {
+                    record.Id = Storage.NextId(record.Date, data.Records);
+                }
+
                 if (plan.Verdict == RowVerdict.Duplicate && plan.Exact)
                 {
                     var duplicate = FindDuplicate(data.Records, record);
@@ -446,6 +491,7 @@ public static class Exchange
 
                 data.Records.Add(record);
                 result.Added++;
+                result.AddedRecords.Add(record);
                 dirty.Add(record.Date);
             }
             catch (Exception)
@@ -720,12 +766,32 @@ public static class Exchange
 
     private static string Escape(string cell)
     {
-        if (cell.Contains('"') || cell.Contains(',') || cell.Contains('\n') || cell.Contains('\r'))
+        // 防"公式注入"：Excel / WPS 打开 CSV 时，以 = + @ 开头的单元格会被当**公式**执行，
+        // 但以 - 开头且**能当数字看**的（金额、负数）要原样保留。
+        // 做法（业界常规）：在最前面加一个单引号，Excel 会把它当"纯文本"。
+        // 这样导出给别人的文件、或自己双击用 Excel 打开，都不会执行备注/分类/单位里的内容。
+        var text = cell ?? "";
+        if (text.Length > 0)
         {
-            return "\"" + cell.Replace("\"", "\"\"") + "\"";
+            var head = text[0];
+            var risky = head == '=' || head == '+' || head == '@' || head == '\t' || head == '\r';
+            if (!risky && head == '-' && !decimal.TryParse(text, NumberStyles.Number, CultureInfo.InvariantCulture, out _))
+            {
+                risky = true;
+            }
+
+            if (risky)
+            {
+                text = "'" + text;
+            }
         }
 
-        return cell;
+        if (text.Contains('"') || text.Contains(',') || text.Contains('\n') || text.Contains('\r'))
+        {
+            return "\"" + text.Replace("\"", "\"\"") + "\"";
+        }
+
+        return text;
     }
 
     /// <summary>导出目录里最近导出的文件（给界面显示用）。</summary>

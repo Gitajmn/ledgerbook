@@ -178,24 +178,28 @@ public sealed class RecordDialog : Window
                 throw new LedgerException("请选择分类");
             }
 
-            Storage.Update(_record.Id, target =>
-            {
-                target.Date = day;
-                target.Time = time;
-                target.Kind = Valid.ParseKind(_kind);
-                target.Category = category;
-                target.Amount = amount;
-                target.Pay = _payBox.Text.Trim();
-                target.Note = _noteBox.Text.Trim();
-                target.Detail = _detailBox.Text.Trim();
-            });
-
-            // 改了日期就等于换了文件：把记录从原文件挪到新文件
             if (day != _record.Date)
             {
-                Storage.Delete(_record.Id);
+                // 改了日期就等于换了文件：删掉原记录，再在目标日期新记一条。
+                // **详细备注与单位都要带上** —— 老实现漏了 Detail，新加的 Unit 也会漏（等于编辑会丢信息）。
+                Storage.Delete(_record);
                 Storage.Append(day, time, _kind, category, amount, _payBox.Text.Trim(), _noteBox.Text.Trim(),
-                    _record.Owner, _record.Source);
+                    _record.Owner, _record.Source, _detailBox.Text.Trim(), _record.Unit);
+            }
+            else
+            {
+                // 按"整条身份"改：重复编号的历史数据里不会改错"兄弟"
+                Storage.Update(_record, target =>
+                {
+                    target.Date = day;
+                    target.Time = time;
+                    target.Kind = Valid.ParseKind(_kind);
+                    target.Category = category;
+                    target.Amount = amount;
+                    target.Pay = _payBox.Text.Trim();
+                    target.Note = _noteBox.Text.Trim();
+                    target.Detail = _detailBox.Text.Trim();
+                });
             }
 
             Saved = true;

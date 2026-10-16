@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- 记账核心：文件读写、查询统计、配置。没有任何界面依赖，
+       所以界面换（WPF / 控制台 / 手机端）都不用动这里。 -->
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <RootNamespace>LedgerBook.Core</RootNamespace>
+    <AssemblyName>LedgerBook.Core</AssemblyName>
+  </PropertyGroup>
+
+</Project>

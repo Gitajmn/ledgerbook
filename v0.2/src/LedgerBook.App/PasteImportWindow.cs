@@ -255,21 +255,22 @@ public sealed class PasteImportWindow : Window
         return string.Join("\r\n", kept);
     }
 
-    /// <summary>给对话软件的模板：七列 + 用户自己的分类与支付方式（让它直接对得上）。</summary>
+    /// <summary>给对话软件的模板：八列（含单位）+ 用户自己的分类与支付方式（让它直接对得上）。</summary>
     public static string Template(Settings settings)
     {
         var categories = Core.Config.LoadCategories();
         var expense = categories.TryGetValue(Kinds.Expense, out var e) ? string.Join(" / ", e) : "餐饮 / 交通 / 购物 / 其他";
         var income = categories.TryGetValue(Kinds.Income, out var i) ? string.Join(" / ", i) : "工资 / 红包 / 其他";
         var pays = settings.PayMethods.Count > 0 ? string.Join(" / ", settings.PayMethods) : "微信 / 支付宝 / 现金 / 银行卡";
+        var unit = settings.CurrencySymbol;
 
         var builder = new StringBuilder();
         builder.AppendLine("请把账单截图整理成下面的 CSV 文本，只回 CSV 文本本身：");
         builder.AppendLine("（只保留真实的收入与支出；理财赎回、充值/提现/冲正、自己账户之间的转账等内部资金往来请忽略，不要写进 CSV）");
         builder.AppendLine();
-        builder.AppendLine("日期,时间,类型,分类,金额,支付方式,备注");
-        builder.AppendLine("2026-10-13,13:45,支出,借出,10.00,微信,转账-转给牢尖");
-        builder.AppendLine("2026-10-15,02:17,支出,娱乐,629.98,银行卡,某易游戏充值助手");
+        builder.AppendLine("日期,时间,类型,分类,金额,支付方式,备注,单位");
+        builder.AppendLine($"2026-10-13,13:45,支出,借出,10.00,微信,转账-转给牢尖,{unit}");
+        builder.AppendLine($"2026-10-15,02:17,支出,娱乐,629.98,银行卡,某易游戏充值助手,{unit}");
         builder.AppendLine();
         builder.AppendLine("要求：");
         builder.AppendLine("1. 列不要增减，表头照抄；一行一条记录。");
@@ -281,7 +282,8 @@ public sealed class PasteImportWindow : Window
         builder.AppendLine($"7. 收入分类优先用：{income}。");
         builder.AppendLine("8. 备注保留账单里的原始摘要（例如「金拱门」「转账-转给某某」）。");
         builder.AppendLine("9. 理财赎回（如「朝朝宝赎回」）、数字人民币/零钱充值或提现、冲正、以及自己账户之间的转账，都不是真实收支，不要写进 CSV。");
-        builder.AppendLine("10. 不要在 CSV 之外输出解释文字；不要输出 Markdown 表格。");
+        builder.AppendLine($"10. 单位填这笔账的单位（默认「{unit}」）；都是同一种货币时整列写一样的即可，没有就留空。");
+        builder.AppendLine("11. 不要在 CSV 之外输出解释文字；不要输出 Markdown 表格。");
         return builder.ToString().TrimEnd();
     }
 

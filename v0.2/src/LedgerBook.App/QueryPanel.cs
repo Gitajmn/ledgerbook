@@ -46,10 +46,26 @@ public sealed class QueryPanel
     private string _statsKind = "全部";
     /// <summary>分类统计：要高亮的分类（null = 不高亮，其余不正常变暗）。</summary>
     private string? _statsCategory;
+    /// <summary>图表高亮用的标签：同名分类分属收支时是「收入·其他」这种，避免"其他"撞车。</summary>
+    private string? _statsCategoryLabel;
     private ComboBox _kindBox = null!;
     private ComboBox _categoryBox = null!;
     /// <summary>防止"程序改下拉项"时反过来触发 Reload 造成递归。</summary>
     private bool _suppressStatsReload;
+
+    /// <summary>单位下拉里的「全部单位」这一项。</summary>
+    private const string AllUnits = "全部单位";
+    /// <summary>排序下拉的三个选项（单选）。</summary>
+    private static readonly string[] SortItems = { "消费时间", "录入时间", "金额" };
+    /// <summary>当前排序方式（默认按消费时间）。</summary>
+    private string _sortMode = SortItems[0];
+    private ComboBox _sortBox = null!;
+    private bool _suppressSortReload;
+    /// <summary>只看哪个单位的账（null = 全部单位）。**统计与绘图**只算这个单位；**明细列表**仍列出全部单位。</summary>
+    private string? _unitFilter;
+    private ComboBox _unitBox = null!;
+    /// <summary>同上，防止程序改单位下拉项时反过来触发 Reload。</summary>
+    private bool _suppressUnitReload;
 
     public Grid Root { get; }
 
@@ -137,7 +153,7 @@ public sealed class QueryPanel
             else
             {
                 // 图形放在可滚动容器里：面板再小也不会被裁掉
-                body.Children.Add(Ui.HoverScroll(Charts.Draw(view, data, compact: false, _statsCategory)));
+                body.Children.Add(Ui.HoverScroll(Charts.Draw(view, data, compact: false, _statsCategoryLabel)));
             }
         }
     }
@@ -218,6 +234,16 @@ public sealed class QueryPanel
                     }
                 }
             }
+
+            // 同名分类分属收入/支出时（经典例子：「其他」），下拉里必须区分开，否则两者会撞在一起
+            var expenseNames = configured.TryGetValue(Kinds.Expense, out var expenseList) ? expenseList : new List<string>();
+            var incomeNames = configured.TryGetValue(Kinds.Income, out var incomeList) ? incomeList : new List<string>();
+            foreach (var name in expenseNames.Where(item => incomeNames.Contains(item)))
+            {
+                categoryItems.Remove(name);
+                categoryItems.Add(name + "（支出）");
+                categoryItems.Add(name + "（收入）");
+            }
         }
         catch (Exception)
         {
@@ -227,7 +253,47 @@ public sealed class QueryPanel
         _categoryBox = catBox;
         catShell.Margin = new Thickness(8, 0, 14, 0);
         statsRow.Children.Add(catShell);
+
+        // 单位：统计与绘图只算选中的单位；明细列表仍列出全部单位（用户 2026-10-15 的要求）
+        statsRow.Children.Add(Ui.Label("单位", Ui.FontBody, Ui.Muted));
+        var (unitShell, unitBox) = Ui.Select(new[] { AllUnits }, 110, AllUnits);
+        _unitBox = unitBox;
+        unitShell.Margin = new Thickness(8, 0, 0, 0);
+        statsRow.Children.Add(unitShell);
+        unitBox.SelectionChanged += (_, _) =>
+        {
+            if (_suppressUnitReload)
+            {
+                return;
+            }
+
+            var picked = unitBox.SelectedItem?.ToString() ?? AllUnits;
+            _unitFilter = picked == AllUnits ? null : picked;
+            Reload();
+        };
         bar.Children.Add(statsRow);
+
+        // 排序：只影响下方明细列表的顺序（统计与图表与顺序无关）
+        // 消费时间 = 账单上的日期+时间；录入时间 = 按编号推算的录入次序（只是排序键，不写进数据）；
+        // 金额 = 金额大小。都是单选，默认「消费时间」。
+        var sortRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 8, 0, 0) };
+        sortRow.Children.Add(Ui.Label("排序", Ui.FontBody, Ui.Muted));
+        var (sortShell, sortBox) = Ui.Select(SortItems, 130, SortItems[0]);
+        _sortBox = sortBox;
+        sortShell.Margin = new Thickness(8, 0, 0, 0);
+        sortRow.Children.Add(sortShell);
+        sortRow.Children.Add(Ui.Hint("明细列表按这个排；消费时间=账单时间，录入时间=按编号推算（不写进数据），金额=金额大小"));
+        sortBox.SelectionChanged += (_, _) =>
+        {
+            if (_suppressSortReload)
+            {
+                return;
+            }
+
+            _sortMode = sortBox.SelectedItem?.ToString() ?? SortItems[0];
+            Reload();
+        };
+        bar.Children.Add(sortRow);
 
         kindBox.SelectionChanged += (_, _) =>
         {
@@ -250,7 +316,13 @@ public sealed class QueryPanel
 
             // 分类只影响"图上高亮哪个分类"，不改类型、也不会把选择跳回「全部」（修 v0.2 的 bug）
             var picked = catBox.SelectedItem?.ToString() ?? "全部";
-            _statsCategory = picked == "全部" ? null : picked;
+            // 「其他（收入）」这种：明细仍按裸分类名过滤；图表高亮用「收入·其他」
+            var bare = picked;
+            string? kindOfPicked = null;
+            if (picked.EndsWith("（收入）", StringComparison.Ordinal)) { bare = picked[..^4]; kindOfPicked = Kinds.Income; }
+            else if (picked.EndsWith("（支出）", StringComparison.Ordinal)) { bare = picked[..^4]; kindOfPicked = Kinds.Expense; }
+            _statsCategory = bare == "全部" ? null : bare;
+            _statsCategoryLabel = _statsCategory is null ? null : (kindOfPicked is null ? _statsCategory : kindOfPicked + "·" + _statsCategory);
             Reload();
         };
 
@@ -373,7 +445,7 @@ public sealed class QueryPanel
 
         try
         {
-            if (Storage.Delete(record.Id))
+            if (Storage.Delete(record))
             {
         Core.Log.Info($"删记录：{record.Date:yyyy-MM-dd} {record.Kind}/{record.Category}/{record.Amount}");
                 _window.NotifyDataChanged();
@@ -393,25 +465,92 @@ public sealed class QueryPanel
         {
             (start, end) = (end, start);   // 手选了反的也能用
         }
-        var result = Query.Run(new QueryFilter
+        // ① 先"不过滤单位"跑一次：既用来收集这个范围里出现过哪些单位，也作为**明细列表**的数据源
+        //    （用户要求：明细列表要显示其他单位的账单；而统计与绘图只算当前单位）
+        var all = Query.Run(new QueryFilter
         {
             Start = start,
             End = end,
             Limit = _settings.DetailLimit <= 0 ? 0 : _settings.DetailLimit,
         });
 
-        var symbol = _settings.CurrencySymbol;
+        var fallbackUnit = _settings.CurrencySymbol;
+        var unitItems = new List<string> { AllUnits };
+        foreach (var item in all.Records)
+        {
+            var unit = item.Unit.Length > 0 ? item.Unit : fallbackUnit;
+            if (!unitItems.Contains(unit))
+            {
+                unitItems.Add(unit);
+            }
+        }
+
+        _suppressUnitReload = true;
+        try
+        {
+            _unitBox.ItemsSource = unitItems;
+            if (_unitFilter is not null && unitItems.Contains(_unitFilter))
+            {
+                _unitBox.SelectedItem = _unitFilter;
+            }
+            else
+            {
+                _unitBox.SelectedItem = AllUnits;
+                _unitFilter = null;
+            }
+        }
+        finally
+        {
+            _suppressUnitReload = false;
+        }
+
+        // ② 统计与绘图：只看当前单位的账（老记录没有单位 → 算默认单位）
+        var result = _unitFilter is null
+            ? all
+            : Query.Run(new QueryFilter
+            {
+                Start = start,
+                End = end,
+                Limit = _settings.DetailLimit <= 0 ? 0 : _settings.DetailLimit,
+                Unit = _unitFilter,
+            });
+
+        var symbol = _unitFilter ?? _settings.CurrencySymbol;   // 统计口径的符号 = 当前单位
         _totals.Text = $"共 {result.TotalCount} 笔　|　收入 {Valid.Money(result.Income.ToString(CultureInfo.InvariantCulture), symbol)}"
                        + $"　|　支出 {Valid.Money(result.Expense.ToString(CultureInfo.InvariantCulture), symbol)}"
                        + $"　|　结余 {Valid.Money(result.Balance.ToString(CultureInfo.InvariantCulture), symbol)}"
-                       + (result.Truncated ? $"　（只显示前 {_settings.DetailLimit} 行）" : "") + (_statsCategory is null ? "" : $"　（明细只显示「{_statsCategory}」）");
+                       + (result.Truncated ? $"　（只显示前 {_settings.DetailLimit} 行）" : "") + (_statsCategory is null ? "" : $"　（明细只显示「{_statsCategory}」）")
+                        + (_unitFilter is null ? "　（统计含全部单位）" : "　（统计只算单位：" + _unitFilter + "）");
 
         _detailTable.Clear();
 
         // 选了某个分类：下方明细只显示该分类（图表仍画全部该类，只做高亮）
         var detailRecords = _statsCategory is null
-            ? result.Records
-            : result.Records.Where(record => record.Category == _statsCategory).ToList();
+            ? all.Records
+            : all.Records.Where(record => record.Category == _statsCategory).ToList();
+
+        // 排序（用户 2026-10-16 要求，三选一）：只影响明细列表顺序，统计与图表不受影响。
+        //   消费时间 = 账单上的日期 + 时间；
+        //   录入时间 = 按「编号」推算的录入次序（编号里的流水号越大越后录）——**只是排序键，不写进数据**；
+        //   金额     = 金额大小。
+        // 一律"新的/大的在前"，同键再用编号兜底，保证顺序稳定。
+        detailRecords = _sortMode switch
+        {
+            "录入时间" => detailRecords
+                .OrderByDescending(record => Valid.IdSequence(record.Id))
+                .ThenByDescending(record => record.Date)
+                .ToList(),
+            "金额" => detailRecords
+                .OrderByDescending(record => record.AmountValue)
+                .ThenByDescending(record => record.Date)
+                .ThenByDescending(record => record.Time, StringComparer.Ordinal)
+                .ToList(),
+            _ => detailRecords
+                .OrderByDescending(record => record.Date)
+                .ThenByDescending(record => record.Time, StringComparer.Ordinal)
+                .ThenByDescending(record => Valid.IdSequence(record.Id))
+                .ToList(),
+        };
 
         if (detailRecords.Count == 0)
         {
@@ -429,7 +568,7 @@ public sealed class QueryPanel
                     record.Time,
                     record.Kind,
                     record.Category,
-                    Valid.Money(record.Amount, symbol),
+                    Valid.Money(record.Amount, record.Unit.Length > 0 ? record.Unit : fallbackUnit),   // 明细逐行显示它自己的单位
                     record.Pay,
                     record.Note
                 }, payload: record, onAction: ShowDetail);

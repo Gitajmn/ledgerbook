@@ -61,6 +61,9 @@ public static class Ui
     /// </summary>
     public static Brush SelectionFill = Freeze(Color.FromRgb(0xEE, 0xF2, 0xFF));
 
+    /// <summary>按钮/导航的"选中"底色：和 SelectionFill 一样按主题算，深色与自定义配色下都不刺眼。</summary>
+    public static Brush SelectedFill = Freeze(Color.FromRgb(0xE8, 0xEC, 0xF8));
+
     /// <summary>把两种颜色按比例混合（ratio=0 全 a，=1 全 b）。</summary>
     public static Color Blend(Color a, Color b, double ratio)
     {
@@ -139,6 +142,21 @@ public static class Ui
 
         // 选中行底色：跟着"卡片色 + 主色"算，任何主题下都同族、看得见但不刺眼
         SelectionFill = Freeze(Blend(CardColor, AccentColor, dark ? 0.22 : 0.13));
+
+        // ---------- 派生画刷：必须在"配色覆盖之后"再算一遍 ----------
+        // 原因：管理员的「方案配色」只覆盖 7 个颜色（背景/卡片/文字/次要文字/主色/次要按钮/分隔线），
+        // 输入框、悬停、选中、次要按钮这些**派生**画刷如果不重算，就还是内置那套 ——
+        // 深色自定义下会白得刺眼（用户 2026-10-15 报的按钮配色问题）。
+        Field = Freeze(Blend(CardColor, BackgroundColor, 0.35));
+        Hover = Freeze(Blend(CardColor, AccentColor, IsDark ? 0.14 : 0.08));
+        SelectedFill = Freeze(Blend(CardColor, AccentColor, IsDark ? 0.30 : 0.16));
+        Secondary = Freeze(Blend(CardColor, BackgroundColor, 0.55));
+        SecondaryHover = Freeze(Blend(Blend(CardColor, BackgroundColor, 0.45), AccentColor, 0.10));
+        SecondaryPressed = Freeze(Blend(CardColor, BackgroundColor, 0.70));
+        AccentHover = Freeze(Blend(AccentColor, TextColor, 0.14));
+        PrimaryPressed = Freeze(Blend(AccentColor, BackgroundColor, 0.28));
+        Separator = Freeze(Blend(CardColor, LineColor, 0.55));
+        ThumbColor = Blend(LineColor, MutedColor, 0.5);
     }
 
     /// <summary>管理员设置里的方案配色覆盖：`背景=#RRGGBB;卡片=#RRGGBB;…`（空 = 用内置配色）。</summary>

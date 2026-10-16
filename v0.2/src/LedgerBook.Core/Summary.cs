@@ -37,16 +37,31 @@ public sealed class MonthSummary
 /// <summary>月度汇总：按天列出笔数与收支，并可导出 CSV（汇总文件是衍生数据，可随时重算）。</summary>
 public static class Summary
 {
-    public static MonthSummary Build(int year, int month)
+    /// <summary>
+    /// 月度汇总。unit 为空 = 全部单位（含没有单位的老账）；否则只算这个单位。
+    /// 老账没有单位 → 按默认单位（设置里的货币符号）看待。
+    /// 注意：结余是 Income − Expense 派生的，所以按单位过滤后**结余自动跟着同一个口径**。
+    /// </summary>
+    public static MonthSummary Build(int year, int month, string? unit = null)
     {
         var summary = new MonthSummary { Year = year, Month = month };
         var byDay = new Dictionary<DateOnly, DaySummary>();
         var last = DateTime.DaysInMonth(year, month);
+        var fallback = unit is null ? "" : Settings.Load().CurrencySymbol;
 
         foreach (var day in Storage.DaysInMonth(year, month))
         {
             foreach (var record in Storage.ReadDay(day).Records)
             {
+                if (unit is not null)
+                {
+                    var recordUnit = record.Unit.Length > 0 ? record.Unit : fallback;
+                    if (!string.Equals(recordUnit, unit, StringComparison.Ordinal))
+                    {
+                        continue;   // 单位不符：不计入笔数/收支 → 结余与图表自然也是同一个口径
+                    }
+                }
+
                 if (!byDay.TryGetValue(record.Date, out var item))
                 {
                     item = new DaySummary { Day = record.Date };
@@ -81,11 +96,13 @@ public static class Summary
     /// <summary>
     /// 导出月度汇总 CSV 到导出目录（UTF-8 带 BOM，Excel 双击不乱码）。
     /// 只写「有记录的天」和最后一行合计，和 v0.1.0 的汇总文件格式一致。
+    /// unit 为空 = 这份汇总含全部单位（文件名里会写明）；
+    /// 指定 unit 时文件名也带上单位，避免"先导全部、再导某个单位"互相覆盖。
     /// </summary>
-    public static string ExportCsv(MonthSummary summary, string symbol = "¥")
+    public static string ExportCsv(MonthSummary summary, string symbol = "¥", string? unit = null)
     {
         var builder = new StringBuilder();
-        builder.Append($"月度汇总,{Paths.MonthName(summary.Year, summary.Month)}\r\n");
+        builder.Append($"月度汇总,{Paths.MonthName(summary.Year, summary.Month)},{((unit ?? "").Length > 0 ? unit : "全部单位")}\r\n");
         builder.Append($"日期,星期,笔数,收入,支出,结余\r\n");
         foreach (var day in summary.Days.Where(item => item.Count > 0))
         {
@@ -109,7 +126,8 @@ public static class Summary
         })).Append("\r\n");
 
         Directory.CreateDirectory(Paths.ExportDir);
-        var path = Path.Combine(Paths.ExportDir, $"月度汇总-{Paths.MonthName(summary.Year, summary.Month)}.csv");
+        var suffix = (unit ?? "").Length > 0 ? unit : "全部单位";
+        var path = Path.Combine(Paths.ExportDir, $"月度汇总-{Paths.MonthName(summary.Year, summary.Month)}（{suffix}）.csv");
         Table.AtomicWrite(path, builder.ToString(), new UTF8Encoding(true));
         return path;
     }

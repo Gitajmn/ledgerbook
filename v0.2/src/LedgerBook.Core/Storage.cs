@@ -259,8 +259,8 @@ public static class Storage
     }
 
     /// <summary>追加一条记录（返回写好的记录）。</summary>
-    public static Record Append(DateOnly day, string time, string kind, string category, string amount,
-        string pay, string note, string owner, string source, string detail = "")
+        public static Record Append(DateOnly day, string time, string kind, string category, string amount,
+            string pay, string note, string owner, string source, string detail = "", string unit = "")
     {
         var data = ReadDay(day);
         var record = new Record
@@ -276,6 +276,8 @@ public static class Storage
             Detail = detail.Trim(),
             Owner = owner.Trim(),
             Source = source.Trim(),
+            // 单位留空时用当前默认单位（设置里的「货币符号」）—— 这样"默认单位"改了，之后新记的账跟着走
+            Unit = unit.Trim().Length > 0 ? unit.Trim() : Settings.Load().CurrencySymbol,
         };
 
         if (record.Category.Length == 0)
@@ -325,7 +327,15 @@ public static class Storage
         }
 
         var data = ReadDay(day);
-        var removed = data.Records.RemoveAll(record => record.Id == id) > 0;
+        // 只删**第一条**：同一编号可能重复出现（历史 bug 造成），
+        // 以前用 RemoveAll 会把"兄弟"一起删掉（用户 2026-10-16 报：删一条却少了一串）。
+        // 想精确删某一条，请用 Delete(Record)。
+        var index = data.Records.FindIndex(record => record.Id == id);
+        var removed = index >= 0;
+        if (removed)
+        {
+            data.Records.RemoveAt(index);
+        }
         if (removed)
         {
             MaybeBackup(day);
@@ -334,6 +344,72 @@ public static class Storage
 
         return removed;
     }
+
+        /// <summary>
+        /// 删掉**指定的这一条**（按整条身份匹配：编号 + 时间 + 类型 + 分类 + 金额 + 支付方式 + 备注 + 归属 + 来源）。
+        /// 重复编号的历史数据里，这样删才不会连累别的记录。
+        /// </summary>
+
+        /// <summary>
+        /// 改**指定的这一条**（按整条身份定位）。
+        /// 重复编号的历史数据里，按编号取第一条会改错"兄弟"，所以编辑应该用这个重载。
+        /// </summary>
+        public static Record Update(Record target, Action<Record> apply)
+        {
+            if (target is null)
+            {
+                throw new LedgerException("要改的记录不存在");
+            }
+
+            var data = ReadDay(target.Date);
+            var index = data.Records.FindIndex(record =>
+                record.Id == target.Id
+                && record.Time == target.Time
+                && record.Kind == target.Kind
+                && record.Category == target.Category
+                && record.Amount == target.Amount
+                && record.Pay == target.Pay
+                && record.Note == target.Note
+                && record.Owner == target.Owner
+                && record.Source == target.Source);
+            if (index < 0)
+            {
+                throw new LedgerException($"找不到要改的记录（{target.Id} {target.Time} {target.Category} {target.Amount}）");
+            }
+
+            MaybeBackup(target.Date);
+            apply(data.Records[index]);
+            WriteDay(target.Date, data.Records, data.Unparsed);
+            return data.Records[index];
+        }
+        public static bool Delete(Record target)
+        {
+            if (target is null)
+            {
+                return false;
+            }
+
+            var data = ReadDay(target.Date);
+            var index = data.Records.FindIndex(record =>
+                record.Id == target.Id
+                && record.Time == target.Time
+                && record.Kind == target.Kind
+                && record.Category == target.Category
+                && record.Amount == target.Amount
+                && record.Pay == target.Pay
+                && record.Note == target.Note
+                && record.Owner == target.Owner
+                && record.Source == target.Source);
+            if (index < 0)
+            {
+                return false;
+            }
+
+            data.Records.RemoveAt(index);
+            MaybeBackup(target.Date);
+            WriteDay(target.Date, data.Records, data.Unparsed);
+            return true;
+        }
 
     /// <summary>某个月里存在的日期（新旧两种格式都算，同一天只算一次）。</summary>
     public static List<DateOnly> DaysInMonth(int year, int month)

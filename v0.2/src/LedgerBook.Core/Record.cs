@@ -5,6 +5,47 @@ using System.Text.RegularExpressions;
 namespace LedgerBook.Core;
 
 /// <summary>记录类型：支出 / 收入。</summary>
+/// <summary>
+/// 「单位 / 货币符号」的规则。
+/// 设计原则（用户 2026-10-15 要求）：**单位是开放的** —— 元、$、USD、积分、小时 都能用；
+/// 所以这里只做必要的下限约束（非空、不太长、不含空格换行），**不做**"只许字母/只许符号"这种限制。
+/// 唯一的隐患是"纯数字的单位"：金额会显示成 32112.00，容易被误读；这一点只**提示**，不阻止。
+/// </summary>
+public static class UnitRule
+{
+    /// <summary>单位最长几个字。</summary>
+    public const int MaxLength = 6;
+
+    /// <summary>检查单位是否可用：返回空串 = 通过；否则返回一句人话的原因。</summary>
+    public static string Check(string? value)
+    {
+        var text = (value ?? "").Trim();
+        if (text.Length == 0)
+        {
+            return "单位不能为空";
+        }
+
+        if (text.Length > MaxLength)
+        {
+            return $"单位最多 {MaxLength} 个字（现在 {text.Length} 个）";
+        }
+
+        foreach (var ch in text)
+        {
+            if (char.IsWhiteSpace(ch) || char.IsControl(ch))
+            {
+                return "单位里不能有空格或换行";
+            }
+        }
+
+        return "";
+    }
+
+    /// <summary>是不是"纯数字"的单位（有歧义，只提示）。</summary>
+    public static bool LooksNumeric(string? value)
+        => decimal.TryParse((value ?? "").Trim(), NumberStyles.Number, CultureInfo.InvariantCulture, out _);
+}
+
 public static class Kinds
 {
     public const string Expense = "支出";
@@ -38,6 +79,8 @@ public sealed class Record
     public string Owner { get; set; } = "";
     /// <summary>来源：设备名。本机记的默认留空，导出时才补。</summary>
     public string Source { get; set; } = "";
+    /// <summary>单位：这条账自己的单位（元 / 欧元符号 / USD / 积分 …）。老数据没有这一项就是空 = 用默认单位。</summary>
+    public string Unit { get; set; } = "";
 
     /// <summary>
     /// 读进来的原始 JSON 对象（JSONL 格式才有）。
@@ -71,15 +114,16 @@ public static class Fields
     public const string Detail = "详细备注";
     public const string Owner = "归属";
     public const string Source = "来源";
+        public const string Unit = "单位";
 
     /// <summary>当前格式（v3）的字段顺序：v1 的 7 列 + 详细备注 + 归属 + 来源。</summary>
     public static readonly string[] DayHeader =
     {
-        Id, Time, Kind, Category, Amount, Pay, Note, Detail, Owner, Source
+        Id, Time, Kind, Category, Amount, Pay, Note, Detail, Owner, Source, Unit
     };
 
     /// <summary>v2 的 9 列。</summary>
-    public static readonly string[] DayHeaderV2 = { Id, Time, Kind, Category, Amount, Pay, Note, Owner, Source };
+    public static readonly string[] DayHeaderV2 = { Id, Time, Kind, Category, Amount, Pay, Note, Owner, Source, Unit };
 
     /// <summary>v0.1.0 的 7 列（读老文件时按这些名字找列）。</summary>
     public static readonly string[] DayHeaderV1 = { Id, Time, Kind, Category, Amount, Pay, Note };
@@ -98,12 +142,20 @@ public static class Fields
         Detail => record.Detail,
         Owner => record.Owner,
         Source => record.Source,
+            Unit => record.Unit,
         _ => record.ExtraColumns.TryGetValue(name, out var extra) ? extra : ""
     };
 
     /// <summary>写入/导入某个字段（不认识的字段收进 ExtraColumns 留着）。</summary>
     public static void Set(Record record, string name, string value)
     {
+        // 还原导出时加的防公式注入前缀：Exchange.Escape 会给 = + @ 开头的自由文本加一个单引号，
+        // 这里只在这个"单引号 + 危险首字符"的组合下才去掉它 —— 备注里正常的撇号（比如 'abc）不受影响。
+        if (value.Length > 1 && value[0] == (char)39 && (value[1] == '=' || value[1] == '+' || value[1] == '@'))
+        {
+            value = value.Substring(1);
+        }
+
         switch (name)
         {
             case Date:
@@ -123,6 +175,7 @@ public static class Fields
             case Detail: record.Detail = value; break;
             case Owner: record.Owner = value; break;
             case Source: record.Source = value; break;
+                case Unit: record.Unit = value; break;
             default:
                 if (name.Length > 0 && !record.ExtraColumns.ContainsKey(name))
                 {

@@ -37,6 +37,9 @@ public sealed class ImportWindow : Window
 
     public int ImportedCount { get; private set; }
 
+    /// <summary>本次真正新增的记录（调用方拿去放进「本次已记」列表）。</summary>
+    public List<Record> AddedRecords { get; } = new();
+
     public ImportWindow(Settings settings, string path)
     {
         _settings = settings;
@@ -324,15 +327,61 @@ public sealed class ImportWindow : Window
         _summary.Text = $"{Exchange.Describe(_preview)}　|　将按「{_options.Strategy}」处理";
         _resultText.Text = "";
 
-        // ---------- 先一步检查：与已录入数据快速对比（只读涉及到的那些天）----------
-        var existing = new List<Record>();
-        foreach (var day in transformed.Select(item => item.Date).Distinct())
-        {
-            existing.AddRange(Storage.ReadDay(day).Records);
-        }
+        // ---------- 先一步检查：与已录入数据快速对比 ----------
+        // 判重范围：把候选日期所在的**整月**都读进来。只读候选那几天的话，
+        // "同一笔账落在别的日期"就看不出重复（跨天重复）。
+        var existing = ReadExistingAround(transformed);
 
         _plans = Exchange.Plan(transformed, existing);
         BuildPlanRows();
+    }
+
+    /// <summary>
+    /// 判重用的「已录入数据」：取候选日期所在的**整月**（跨月也算进来）。
+    /// 只读候选那几天的话，同一笔账落在别的日期时就认不出重复（跨天重复）——
+    /// 用户 2026-10-16 遇到的正是这类问题。
+    /// </summary>
+    private static List<Record> ReadExistingAround(List<Record> transformed)
+    {
+        if (transformed.Count == 0)
+        {
+            return new List<Record>();
+        }
+
+        var first = transformed.Min(item => item.Date);
+        var last = transformed.Max(item => item.Date);
+        var start = new DateOnly(first.Year, first.Month, 1);
+        var end = new DateOnly(last.Year, last.Month, 1).AddMonths(1).AddDays(-1);
+        return Query.Run(new QueryFilter { Start = start, End = end, Limit = 0 }).Records;
+    }
+
+    /// <summary>
+    /// 导入前**重新比一遍**：不关窗口连点两次「开始导入」时，
+    /// 第一次写入的账已经进账本了，旧的判定还说"新增"→ 会重复写入。
+    /// 这里只更新**判定**（Verdict/Exact/Matched），**保留**每行的人工三态（Action），
+    /// 所以用户锁定的行不会被改动。
+    /// </summary>
+    private void RecheckPlans()
+    {
+        try
+        {
+            var transformed = Exchange.Transformed(_preview, _options);
+            var existing = ReadExistingAround(transformed);
+
+            var fresh = Exchange.Plan(transformed, existing);
+            for (var i = 0; i < _plans.Count && i < fresh.Count; i++)
+            {
+                _plans[i].Verdict = fresh[i].Verdict;
+                _plans[i].Exact = fresh[i].Exact;
+                _plans[i].Matched = fresh[i].Matched;
+            }
+
+            BuildPlanRows();   // 刷新显示：变灰的行与顶部计数都会更新
+        }
+        catch (Exception exc)
+        {
+            Core.Log.Info("导入前重新比对失败（不影响本次导入）：" + exc.Message);
+        }
     }
 
     /// <summary>把三态与预判渲染成一行行；点左侧小按钮可改成 自动 / 导入锁定 / 不导入锁定。</summary>
@@ -517,6 +566,8 @@ public sealed class ImportWindow : Window
             return;
         }
 
+        RecheckPlans();   // 关键：导入前重比一次，防止连点造成重复写入
+
         ShowBusy("正在导入，请不要关闭窗口……");
 
         // 让「加载中」先渲染出来，再干活
@@ -526,7 +577,9 @@ public sealed class ImportWindow : Window
             {
                 _settings.Save("导入默认策略", _options.Strategy);
                 var result = Exchange.Apply(_preview, _options, _plans);
+                RecheckPlans();   // 导入后再比一次：这些行现在都该显示为"跳过"
                 ImportedCount = result.Added + result.Updated;
+                AddedRecords.AddRange(result.AddedRecords);   // 交给调用方放进「本次已记」
                 _resultText.Foreground = Ui.Text;
                 _resultText.Text = $"完成：新增 {result.Added} 条，更新 {result.Updated} 条，"
                                    + $"跳过 {result.Skipped} 条，失败 {result.Failed} 条（涉及 {result.Days.Count} 天）";

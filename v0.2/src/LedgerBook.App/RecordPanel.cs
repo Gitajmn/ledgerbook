@@ -23,7 +23,8 @@ public sealed class RecordPanel
     private readonly ComboBox _payBox;
     private readonly Border _categoryShell;
     private readonly Border _payShell;
-    private readonly TextBlock _amountUnit;
+    /// <summary>这条账自己的单位（默认=设置里的默认单位；留空也按默认单位算）。</summary>
+    private readonly TextBox _unitBox;
     private readonly Ui.DataTable _sessionTable;
     private readonly Border _sessionCard;
     private readonly StackPanel _sessionBox;
@@ -92,9 +93,12 @@ public sealed class RecordPanel
         _amountBox = amountBox;
         var amountRow = new StackPanel { Orientation = Orientation.Horizontal };
         amountRow.Children.Add(amountShell);
-        _amountUnit = Ui.Hint($"元（{_settings.CurrencySymbol}）");
-        _amountUnit.Margin = new Thickness(10, 0, 0, 0);
-        amountRow.Children.Add(_amountUnit);
+        var (unitShell, unitBox) = Ui.Input(_settings.CurrencySymbol, 90);   // 单位：默认跟着设置走，可逐笔改
+        _unitBox = unitBox;
+        var unitHint = Ui.Hint("单位（可逐笔改，留空=默认）");
+        unitHint.Margin = new Thickness(8, 0, 0, 0);
+        amountRow.Children.Add(unitShell);
+        amountRow.Children.Add(unitHint);
         fields.Children.Add(LabeledRow("金额", amountRow));
 
         var categories = Config.LoadCategories();
@@ -253,6 +257,14 @@ public sealed class RecordPanel
     {
         try
         {
+            // 单位是开放的，但也要守规矩（非空/不太长/不含空格换行）；不合格就说清楚原因
+            var unitReason = Core.UnitRule.Check(_unitBox.Text.Length > 0 ? _unitBox.Text : _settings.CurrencySymbol);
+            if (unitReason.Length > 0)
+            {
+                _window.ShowError("单位用不了：" + unitReason);
+                _unitBox.Focus();
+                return;
+            }
             var day = Valid.ParseDate(_dateBox.Text);
             var record = Storage.Append(
                 day,
@@ -264,10 +276,11 @@ public sealed class RecordPanel
                 _noteBox.Text,
                 _account.UserCode,
                 _account.Device,
-                _detailBox.Text);
+                _detailBox.Text,
+                _unitBox.Text);
 
             _session.Insert(0, record);
-            var symbol = _settings.CurrencySymbol;
+            var symbol = record.Unit.Length > 0 ? record.Unit : _settings.CurrencySymbol;   // 用这条账自己的单位
             Core.Log.Info($"记账：{record.Kind}/{record.Category}/{record.Amount}");
             _window.SetStatus($"已记入 {record.Date:yyyy-MM-dd} {record.Time}：{record.Kind} {record.Category} "
                               + $"{Valid.Money(record.Amount, symbol)}");
@@ -299,6 +312,23 @@ public sealed class RecordPanel
     ///   · 显示列表：表单按内容高度 + 列表占剩余高度（列表长了它自己滚）；
     ///   · 隐藏列表：**表单卡片吃掉整块高度**，下半屏不会剩一大片空白。
     /// </summary>
+    /// <summary>
+    /// 把**刚导入的记录**也放进「本次已记」列表（用户 2026-10-16 要求：导入后同样算本次已记）。
+    /// 只影响这个列表的显示；账本数据在导入时就写好了。列表是"新的在上面"，所以倒着插。
+    /// </summary>
+    public void AddToSession(List<Record> records)
+    {
+        for (var i = records.Count - 1; i >= 0; i--)
+        {
+            _session.Insert(0, records[i]);
+        }
+
+        if (records.Count > 0)
+        {
+            RefreshSessionList();
+        }
+    }
+
     public void ApplySessionListVisibility()
     {
         // 用户要求（2026-10-10）：隐藏时**不要**把表单卡片拉长成一大块白的，
