@@ -1,0 +1,83 @@
+﻿记账本 v0.2.2 · 存档清单
+存档时间：2026-10-10 05:51:18
+存档目录：D:\desktop\记账\历史版本\v0.2.2-存档-2026-10-10
+应用版本：0.2.2    运行时版本：8.0.31（私有运行时布局）
+构建方式：pwsh -File v0.2\工具\打包-自研安装包.ps1（应用 FDD + 私有运行时负载 + 自研安装器）
+自检结论：离线逻辑 35/35 + 甲安装器真装真卸 22/22 + 应用 91/91 全绿（工具\安装包自检-甲.ps1 -含应用自检）
+附加说明：0.2.2 正式版：统计图全面加强（3D 饼/竖向 3D 柱/方格/表格，查询与月度各自可配）、应用内提示与确认、全应用无滚动条 + 悬停滚动、备份占用上限；修 5 个缺陷（勾选框无文字、设置不生效、连点丢勾、卡片滚不动、饼图溢出）。
+
+【文件清单 + SHA256】
+README.txt                                                                    1,314 字节  FFE1A4787D91E5D0C6268D6ED9848D16FC15A87B8E7A2418B4B28EBE9110A0D5
+安装包\记账本-安装包-v0.2.2-单文件-完整.exe                                            65,370,112 字节  0CDA2452A35E6C2BAFAFC46109EF57143CCB48ED91D8779375061B8522B4C7B4
+安装包\记账本-安装包-v0.2.2-单文件-小包.exe                                               839,168 字节  17F7AAEF91F21F983EF174B3E5235B3CB0CFFEFD86843E2AC131A8BC85B4CB88
+便携版\记账本-便携版-v0.2.2-精简.zip                                                   433,983 字节  F3C6449D5782D7604C2C880C5B0D5EEE7B8420365C4A05C7B6B37DFE1AE8254B
+便携版\记账本-便携版-v0.2.2-内置运行时.zip                                             64,964,924 字节  7000D8B4168DDCB7DDDE33B66C9031617D049046848FDFD8AEE55C5EB92DB143
+说明\安装包-自研版-说明与测试步骤.txt                                                        3,216 字节  8E36E971FF29333D77B07B1081FE93A12688D2EA7471BC02DF648F27A665F969
+源码快照\Directory.Build.props                                                      652 字节  F25AD52AB7AA633DB7BB295A05BABDD14F2A865F1E9C93E12CEF68D040D10B69
+源码快照\tools\LedgerBook.SelfCheck\LedgerBook.SelfCheck.csproj                     536 字节  237DB22BAA0B31A57748C2CE9FC77C882D7EB5AB75B13464388A823CC9CFF7E7
+源码快照\tools\LedgerBook.SelfCheck\Program.cs                                   30,061 字节  F7B654B0972F64FC3235ED23564E56881978E1BC063199A4C3934FC45F5C6DB4
+源码快照\tools\LedgerBook.UninstallTest\LedgerBook.UninstallTest.csproj           1,180 字节  CE03FEE1579B627628BF456108D870B94FFCB2C0436CABB0CCC376C66F0F3FDB
+源码快照\tools\LedgerBook.UninstallTest\Program.cs                               10,827 字节  4CF805A57529E3A4281B818BE2B348F4DFB148D14C6646662BC192E53AE486F8
+源码快照\tools\LedgerBook.UninstallTest\假向导.cs                                    1,676 字节  D4588427CCFEF9D045A306B9B68A892E2214610C7982C46046D6D9D44A0DDB05
+源码快照\安装器\Installer.cs                                                        23,162 字节  7E2096887B7D82BF94FC6983DB150E389B5503E321EB8C6C943780CE2A06158B
+源码快照\安装器\Installer-lzma.cs                                                    8,174 字节  0708C58F413EB40639054BF3FE8753F3403D9DFBB537A5A0428069B6CDB42F79
+源码快照\安装器\stub.exe                                                            17,408 字节  FBDBF94DEFCCFBC4872B9923CC4B3535BFC2E2459E4B9222C824ACC12A3544AC
+源码快照\安装器\记账本安装器.cs                                                           46,017 字节  4D66A812F291A523793ED85F7AFBDCA26D0340359E58B4FA776EF1AC21D8FF71
+源码快照\安装器\记账本小工具.cs                                                           19,430 字节  2197CB561783C7AFB4BD1BE118D07E0EA49135498A19E3C553EE28FCC6B3D9C5
+源码快照\安装器\记账本小工具.exe                                                         130,048 字节  DB95561F1A619422A6EB93ADFD8C8471B1F2112BFD92D4B8D62AF84CEB23B663
+源码快照\工具\__pycache__\组装安装包.cpython-312.pyc                                     7,223 字节  77E00EB8D325F9ED9CB8CE288C4E75D07FF11270B57CEBEEBD2D6625C775C0C8
+源码快照\工具\安装包自检-甲.ps1                                                          10,705 字节  C201D616F7A02A18F1064BB07E61BF7E87BD656C5125161E70F02AA68E429CDB
+源码快照\工具\测试版快照.ps1                                                             3,824 字节  EAA7BCA8FB8D2EEF3D3C8B00B5321918FC770D3A3D7F64BEBED8F1DEE15CE06A
+源码快照\工具\出测试版运行目录.ps1                                                          4,322 字节  2AE67A509E013AAF1E03ACB8C2F047C53C003FA5734DA1670E7C4A601AE2A2A3
+源码快照\工具\存档版本.ps1                                                              6,611 字节  8E1422D36B5CF4299EA75C5DF3FADDFE2A7DA1C69EB6ED7700DB944D7A32B63A
+源码快照\工具\打包zip.py                                                              2,436 字节  FADA40088CF610A6E8941BE47EE15EEED810626334B2472C9319DE675B6AE346
+源码快照\工具\打包安装包.py                                                              1,917 字节  7E821B626C7CAFF8BB9457D77F8C97F4074A761713174E504407FFA490C59058
+源码快照\工具\打包安装包-Inno.ps1                                                        2,601 字节  1F4730A23C72686FFB3545A8DA59538130C4C06483D9C03DB939716728D5EE27
+源码快照\工具\打包单文件安装包.ps1                                                          6,004 字节  D28A1B5A593BCC359DBC6C20486B1A5A91A00AF2413410FDB700CE59C2CFF306
+源码快照\工具\打包免NET负载.ps1                                                          6,738 字节  51F7F15040A43E0BB719C77B15B7E4DA7711D50E431EE04DA3CA7F9D529D557B
+源码快照\工具\打包-自研安装包.ps1                                                         10,783 字节  98E97D887FC38EC4D8D164430C17F16D2EF83A26BC07079E7D9B2D06826F840A
+源码快照\工具\解包器端到端测试.py                                                           6,028 字节  75473E91D2D66D3ABFF21F22DF976DB1A44BB0BE690DF63CED4360E444D65F36
+源码快照\工具\解出安装包负载.py                                                            2,680 字节  E0733FE5F4810407A89CE604C8069E1FA024B0AA95858AEB1A08192019FB664B
+源码快照\工具\清理旧解包器残留（管理员）.bat                                                     2,240 字节  DB69C4BE61D6F17435CC746BEE0C13FF2281A762D1D7B73DD2C16BF9196366ED
+源码快照\工具\生成图标.py                                                               2,904 字节  DD232CFCCECF825C85666E09860DD781CB1EE7DF97F6B2F5D044B69D7652CAEE
+源码快照\工具\校验安装包.py                                                              7,582 字节  81849C40E673E60B4BC4BEE5AA6F3B4DC9CEA27C28113A1B02726FF865CDA4E0
+源码快照\工具\修复脚本BOM.ps1                                                           1,583 字节  EF27402A70FF707621AD5F882504D24677B406CEDF1621943A302702A8D207E6
+源码快照\工具\一键清理残留-旧解包器残留.bat                                                       693 字节  D4A5312449BC4B7A074811DD7EF1E872B5249C672C4F6775B3DA6D29363D29DC
+源码快照\工具\组装安装包.py                                                              4,873 字节  4AC3FADC9807FEEB4BFD6301C2D9FDA4210D15680581194C3818D591C5222F9E
+源码快照\继承文档.md                                                                 44,398 字节  03EFA71391115454CBACFE14F568445E5084385AE895DD83E972410213E7B294
+源码快照\应用源码\LedgerBook.App\appicon.ico                                        114,452 字节  1EBDA93FD356BEA0764EDB6F9AEE5905B76480991C7EBA67C17F0D1C7598F9EE
+源码快照\应用源码\LedgerBook.App\Charts.cs                                           23,546 字节  B4518DC90084A9CCEE2DBE7DCC6AB0D7BF5E00FF56951FCD446083F6077A5293
+源码快照\应用源码\LedgerBook.App\DateField.cs                                         4,897 字节  661B1125071C34F5A2D020236C1AB39A50ABD842983D5DED5350F195F096850A
+源码快照\应用源码\LedgerBook.App\DetailCard.cs                                        4,702 字节  8D42C36307FC1537A842E27D2A8EBC9B61709F4EE276AA015653B82E3CB4C85A
+源码快照\应用源码\LedgerBook.App\Diag.cs                                                867 字节  44DB8C5CC05CAB0ADE129D2E53543E319CF86FEBFDD870CB84B13AF089261E13
+源码快照\应用源码\LedgerBook.App\ImportWindow.cs                                     18,156 字节  606283E825EE124A719DA9F1B5D0CD593A7EA022A673F6FABFCA10EAFA4DEE1B
+源码快照\应用源码\LedgerBook.App\LedgerBook.App.csproj                                  711 字节  8AE9B2274AA6EBAF44EAADCBA136296F4AB90D61C589DE8EB57CCAEABB610247
+源码快照\应用源码\LedgerBook.App\ListEditor.cs                                       15,775 字节  F934E7A7FFA230297208DB0641E160F9FEA44C095BE2D5823253E27EBDD592A4
+源码快照\应用源码\LedgerBook.App\MainWindow.cs                                       27,670 字节  BAE7D2BC92AB98F8B3E0CC267B8788B67E414493C2119A3D8EC462AE7538CEEC
+源码快照\应用源码\LedgerBook.App\Program.cs                                          17,570 字节  61F533E01934B1A6C408A3B2942F6096A5B41195F0B8070F2B51209CBDB75724
+源码快照\应用源码\LedgerBook.App\QueryPanel.cs                                       15,684 字节  91AE5E334660AB0E8A4C11E3DD614204283989587407CF8CA72B938C3F70A9F3
+源码快照\应用源码\LedgerBook.App\RecordDialog.cs                                      7,724 字节  E0C8FB454E0DE61DDAABCB77D49AC80A34C089CA10E2C577FFEFB198EEB349BE
+源码快照\应用源码\LedgerBook.App\RecordPanel.cs                                      14,066 字节  D5902A3A6C344F60EA556B7362DC40CC37BFA06B3A52AA235EEF1821966D0FCB
+源码快照\应用源码\LedgerBook.App\SettingsPanel.cs                                    41,956 字节  D3A3928C0115919BBAE628BCBB4CEE7FB5EC73E79A5DEA8398C636636C88896F
+源码快照\应用源码\LedgerBook.App\SummaryPanel.cs                                     11,399 字节  102F469029CD85EE42B478152F44716E729A7B69881794B901D16934426E6DBA
+源码快照\应用源码\LedgerBook.App\Ui.cs                                               47,488 字节  85BE9539BBB450CA52B2B66F5CFBD865D7761FBBDA5AFFD5EF439DE3DCA9111A
+源码快照\应用源码\LedgerBook.Core\Exchange.cs                                        14,893 字节  63C60ADA9769BDE1B73D0D60BA90A52EAED303FBBDD3AED461A4C9ED94A8038C
+源码快照\应用源码\LedgerBook.Core\LedgerBook.Core.csproj                                400 字节  B51D068DA99C97A09AFA1FBA4C851F9A99D7A5C6B7DE56D037E266BD5E8D5E69
+源码快照\应用源码\LedgerBook.Core\Paths.cs                                            6,847 字节  60119A6A5E0192781FDD75F16C55EB66826158ED3CD1E93C57834E1E4DAE6BB2
+源码快照\应用源码\LedgerBook.Core\Query.cs                                            7,965 字节  99D1EC22CBA8E135388ECEFE1B52DF66F44DDFACDE710086062229023B8C172A
+源码快照\应用源码\LedgerBook.Core\Record.cs                                          10,978 字节  5A55A815EC97E90FDFFF679EE611D4A1FBA480205B9DB7463B7AAEAC237E82CF
+源码快照\应用源码\LedgerBook.Core\Settings.cs                                        17,701 字节  F35BE665721456F02D6CB13CD5213F54FE71D1B5EC1AE3F1663732C9599F0E7F
+源码快照\应用源码\LedgerBook.Core\Storage.cs                                         17,367 字节  FC5925763EB947529CA10331971474EA01B47FE90069BF8CDAB95FE1CA399607
+源码快照\应用源码\LedgerBook.Core\Store.cs                                           13,848 字节  A4D79FE55E1D2DD7990BF7C89D4E9EAB7840C07D4EFF2A320D596D69A869ED2D
+源码快照\应用源码\LedgerBook.Core\Summary.cs                                          4,309 字节  CF060A755D64C6700F3B71201156FD0FC13D37F57B3D08B6DEF3492F1BDCECDC
+源码快照\应用源码\LedgerBook.Core\Table.cs                                            8,231 字节  CDCEAEED4B68B3ACCAD470EC4E39A055CABF45E7FCBB64FF86DAC011B13B11A6
+源码快照\应用源码\LedgerBook.Setup\app.manifest                                         880 字节  07AF25E848ACE09B4C8CFDB02DCC9AD17A5EA927981B7EA0E47E5EB6CF958F46
+源码快照\应用源码\LedgerBook.Setup\Installer.cs                                      54,360 字节  124832E834D7731B4DF8F747F52E628D7167014AC0107A5E237CDE1F5627C0B1
+源码快照\应用源码\LedgerBook.Setup\LedgerBook.Setup.csproj                            1,057 字节  925D415C685832624EE309C0E21A8F54B0A755BB097D281330A04A411D19FA27
+源码快照\应用源码\LedgerBook.Setup\PackageTail.cs                                     5,280 字节  E7BF86B10F2BA1C09C1F11D3D7101E996DB39CF57A540F91D82DA635378A4EE4
+源码快照\应用源码\LedgerBook.Setup\UninstallPlan.cs                                   8,129 字节  AE46119E734C7CBE0C38F7DBB06162A8040EBDA76EE53EC1CEDDC37739FC4380
+源码快照\应用源码\LedgerBook.Setup\WorkDirLock.cs                                     2,714 字节  B7088D3BAA1B0CBD9645BC9069523D1CD92B7EEB01655C348D9123AF8AF3F423
+
+合计：70 个文件，126.4 MB
+
+【回读校验（存档副本 vs newest 原件）】
