@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- WPF 界面。用纯 C# 构建界面（不写 XAML）：没有设计器的情况下，代码构建更可控、
+       出错信息也更直接。样式全部来自 Ui.cs 里的设计系统。 -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <RootNamespace>LedgerBook.App</RootNamespace>
+    <AssemblyName>记账本</AssemblyName>
+    <StartupObject>LedgerBook.App.Program</StartupObject>
+    <ApplicationIcon>appicon.ico</ApplicationIcon>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\LedgerBook.Core\LedgerBook.Core.csproj" />
+  </ItemGroup>
+
+</Project>

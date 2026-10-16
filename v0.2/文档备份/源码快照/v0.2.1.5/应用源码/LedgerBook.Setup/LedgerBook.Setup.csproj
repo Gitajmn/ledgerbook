@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- 安装向导：单文件 setup.exe。
+       两个负载（精简本体 ~3MB / 内置运行时 ~85MB）作为内嵌资源打进 exe，
+       安装时按目标机器有没有 .NET 8 桌面运行时来选，所以单文件也能"按需安装"。 -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <Nullable>disable</Nullable>
+    <RootNamespace>LedgerBook.Setup</RootNamespace>
+    <AssemblyName>lbsetup</AssemblyName>
+    <StartupObject>LedgerBook.Setup.Program</StartupObject>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>..\LedgerBook.App\appicon.ico</ApplicationIcon>
+    <AssemblyTitle>记账本 安装程序</AssemblyTitle>
+    <Product>记账本</Product>
+    <Version>2.0.0</Version>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="payload-*.zip" />
+    <EmbeddedResource Include="..\LedgerBook.App\appicon.ico" Link="appicon.ico" />
+  </ItemGroup>
+
+</Project>
