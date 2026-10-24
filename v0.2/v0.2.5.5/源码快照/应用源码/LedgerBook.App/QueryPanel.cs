@@ -91,9 +91,17 @@ public sealed class QueryPanel
             _statsHolder.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         }
 
+        // 行高：**含「表格」的那一行按内容自动定高**，其余行分掉剩下的高度。
+        // 以前四格一律平分高度 → 纯支出只有 8 个分类，表格也只能显示 5 行（用户 2026-10-24 反馈）。
+        // 现在分类少 → 表格那行按行数自然变高；分类多（收支都有）→ Auto 行有上限（见下面的 62%），表格内部滚动。
         for (var i = 0; i < rows; i++)
         {
-            _statsHolder.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+            var rowIndex = i;
+            var hasTable = views.Where((view, index) => index / columns == rowIndex).Contains("表格");
+            _statsHolder.RowDefinitions.Add(new RowDefinition
+            {
+                Height = hasTable ? GridLength.Auto : new GridLength(1, GridUnitType.Star),
+            });
         }
 
         for (var index = 0; index < views.Count; index++)
@@ -107,6 +115,17 @@ public sealed class QueryPanel
             content.Children.Add(body);
             Grid.SetRow(body, 1);
             var card = Ui.CardPanel(content, padding: 10, margin: new Thickness(3));
+            if (_statsHolder.RowDefinitions[index / columns].Height.IsAuto)
+            {
+                // 再长的表格 / 再多的图例，最多吃掉可用高度的 62%：剩下 38% 留给另一行的图形，
+                // 免得「分类特别多」时把柱状图、方格图压成一条缝。
+                card.SetBinding(FrameworkElement.MaxHeightProperty, new System.Windows.Data.Binding("ActualHeight")
+                {
+                    Source = _statsHolder,
+                    Converter = new HeightCap(0.62),
+                });
+            }
+
             Grid.SetRow(card, index / columns);
             Grid.SetColumn(card, index % columns);
             _statsHolder.Children.Add(card);
@@ -152,8 +171,8 @@ public sealed class QueryPanel
             }
             else
             {
-                // 图形放在可滚动容器里：面板再小也不会被裁掉
-                body.Children.Add(Ui.HoverScroll(Charts.Draw(view, data, compact: false, _statsCategoryLabel)));
+                // 图形放在可滚动容器里：面板再小也不会被裁掉；给一条细滚动条，让人看得出下面还有内容
+                body.Children.Add(Ui.HoverScroll(Charts.Draw(view, data, compact: false, _statsCategoryLabel), showBar: true));
             }
         }
     }
@@ -615,5 +634,22 @@ public sealed class QueryPanel
             _statsSignature = signature;
             RenderStats(result.ByCategory);
         }
+    }
+
+    /// <summary>把「可用高度的比例」换算成 MaxHeight（0.62 = 最多占 62%）。</summary>
+    private sealed class HeightCap : System.Windows.Data.IValueConverter
+    {
+        public HeightCap(double ratio)
+        {
+            _ratio = ratio;
+        }
+
+        private readonly double _ratio;
+
+        public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+            => value is double height && height > 0 ? height * _ratio : double.PositiveInfinity;
+
+        public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
+            => throw new NotSupportedException();
     }
 }

@@ -828,12 +828,16 @@ public static class Ui
         return false;
     }
 
-    public static ScrollViewer HoverScroll(UIElement content, double? height = null)
+    /// <summary>
+    /// 可滚动的容器。默认**不显示**滚动条（原来就这样）；showBar = true 时给一条细滚动条，
+    /// 让用户看得出来"这里还能往下滚"（0.2.5.5 起分类统计的图表区就是这种）。
+    /// </summary>
+    public static ScrollViewer HoverScroll(UIElement content, double? height = null, bool showBar = false)
     {
         var scroll = new ScrollViewer
         {
             Content = content,
-            VerticalScrollBarVisibility = ScrollBarVisibility.Hidden,
+            VerticalScrollBarVisibility = showBar ? ScrollBarVisibility.Auto : ScrollBarVisibility.Hidden,
             HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
             Focusable = false,
             PanningMode = PanningMode.VerticalOnly,
@@ -843,7 +847,61 @@ public static class Ui
             scroll.Height = height.Value;
         }
 
+        SmoothWheel(scroll);
         return scroll;
+    }
+
+    // ---------- 滚轮平滑滚动 ----------
+
+    /// <summary>动画滚动的位置（附加属性）：动画只改这个值，值一变才真的滚动。</summary>
+    private static readonly DependencyProperty SmoothOffsetProperty = DependencyProperty.RegisterAttached(
+        "SmoothOffset",
+        typeof(double),
+        typeof(Ui),
+        new PropertyMetadata(0.0, (dependencyObject, args) =>
+        {
+            if (dependencyObject is ScrollViewer viewer && args.NewValue is double offset)
+            {
+                viewer.ScrollToVerticalOffset(offset);
+            }
+        }));
+
+    /// <summary>一格滚轮滚多少像素（和系统默认「3 行」的总高度接近）。</summary>
+    private const double WheelStep = 132;
+
+    /// <summary>
+    /// 滚轮平滑滚动：ScrollViewer 默认是一格一格硬跳，看着发顿；这里用 150ms 缓动补一小段动画。
+    /// 滚不动（内容没超出）时不接管事件，把滚轮还给外层。
+    /// </summary>
+    public static void SmoothWheel(ScrollViewer scroll)
+    {
+        scroll.PreviewMouseWheel += (_, e) =>
+        {
+            if (e.Handled || scroll.ScrollableHeight <= 0.5)
+            {
+                return;
+            }
+
+            e.Handled = true;
+            var from = scroll.VerticalOffset;
+            var to = Math.Max(0, Math.Min(scroll.ScrollableHeight, from - Math.Sign(e.Delta) * WheelStep));
+            if (Math.Abs(to - from) < 0.5)
+            {
+                return;
+            }
+
+            var animation = new System.Windows.Media.Animation.DoubleAnimation(
+                from, to, TimeSpan.FromMilliseconds(150))
+            {
+                EasingFunction = new System.Windows.Media.Animation.CubicEase
+                {
+                    EasingMode = System.Windows.Media.Animation.EasingMode.EaseOut,
+                },
+                // 停在终点：绝对不能清掉动画 —— 附加属性的基值是 0，一清就会跳回顶部
+                FillBehavior = System.Windows.Media.Animation.FillBehavior.HoldEnd,
+            };
+            scroll.BeginAnimation(SmoothOffsetProperty, animation);
+        };
     }
 
     public static (Border Shell, ComboBox Combo) Select(IEnumerable<string> items, double width = 140, string? selected = null, bool editable = false)
@@ -965,19 +1023,23 @@ public static class Ui
 
             _rows.Margin = new Thickness(0);
 
-            var stack = new StackPanel();
-            stack.Children.Add(_header);
-            stack.Children.Add(_rows);
-
             _scroll = new ScrollViewer
             {
-                Content = stack,
-                VerticalScrollBarVisibility = ScrollBarVisibility.Hidden,
+                Content = _rows,
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,   // 行多了要看得出来能滚
                 HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
                 Padding = new Thickness(0),
             };
+            SmoothWheel(_scroll);
 
-            Root = CardPanel(_scroll, padding: 2);
+            // 表头**钉在上面**，只有行跟着滚（以前表头在滚动内容里，滚两行就看不见列名了）。
+            // DockPanel 的妙处：高度富余时撑满、不够时只给"填满"那一行（= 行区）压缩 → 自动出滚动条。
+            var body = new DockPanel { LastChildFill = true };
+            DockPanel.SetDock(_header, Dock.Top);
+            body.Children.Add(_header);
+            body.Children.Add(_scroll);
+
+            Root = CardPanel(body, padding: 2);
         }
 
         public void Clear()

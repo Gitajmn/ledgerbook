@@ -158,7 +158,7 @@ public static class Charts
 
     // ---------------------------------------------------------------- 饼状图
 
-    public static UIElement Pie(IReadOnlyList<CategoryTotal> data, double size = 190)
+    public static UIElement Pie(IReadOnlyList<CategoryTotal> data, double size = 190, double? legendMaxHeight = null)
     {
         var series = Series(data);
         var host = new Grid();
@@ -260,25 +260,38 @@ public static class Charts
             StrokeLineJoin = PenLineJoin.Bevel,   // 关键：默认 Miter 尖角会在竖直边上拉出白色小刺
             Fill = null,
         });
-        var layout = new StackPanel { VerticalAlignment = VerticalAlignment.Top };
-        layout.Children.Add(new Grid
+        // 纵向：饼在上、图例在下。用 DockPanel 而不是 StackPanel ——
+        // 面板比内容矮时**只压缩图例那一块**（图例自己出滚动条），饼不会被挤走；
+        // 面板更高时图例一直往下延伸（用户 2026-10-24 反馈：图例被截断、又拉不下来）。
+        var layout = new DockPanel { LastChildFill = true };
+        var pieHost = new Grid
         {
             Height = height,
             HorizontalAlignment = HorizontalAlignment.Center,
             ClipToBounds = true,          // 双保险：几何再算错也不会漏到卡片外面
             Children = { canvas },
-        });
-        var legendScroll = Ui.HoverScroll(Legend(series, 8));   // 不钉高度：图例有几项就多高，超出才滚
-        legendScroll.MaxHeight = 120;
-        layout.Children.Add(legendScroll);
+        };
+        DockPanel.SetDock(pieHost, Dock.Top);
+        layout.Children.Add(pieHost);
+
         var note = HiddenNote(data);
         if (note.Length > 0)
         {
             var hint = Ui.Hint(note);
             hint.Margin = new Thickness(0, 4, 0, 0);
             hint.TextWrapping = TextWrapping.Wrap;
+            DockPanel.SetDock(hint, Dock.Bottom);
             layout.Children.Add(hint);
         }
+
+        // 图例：**全部列出**（不再截断到 8 项），底下给一条细滚动条，够高就一次看全
+        var legendScroll = Ui.HoverScroll(Legend(series, int.MaxValue), showBar: true);
+        if (legendMaxHeight is not null)
+        {
+            legendScroll.MaxHeight = legendMaxHeight.Value;   // 紧凑模式（月度汇总）限高，免得把下面的图挤出去
+        }
+
+        layout.Children.Add(legendScroll);
 
         host.Children.Add(layout);
         return host;
@@ -589,7 +602,9 @@ public static class Charts
 
     private static UIElement ChartBody(string view, IReadOnlyList<CategoryTotal> list, bool compact) => view switch
     {
-        "饼状图" => Pie(list, compact ? 92 : 108),
+        // 紧凑模式（月度汇总）保持原来的图例高度上限，免得一个窗口里塞不下；查询统计不限高
+        "饼状图" => Pie(list, compact ? 92 : 108, compact ? 120 : (double?)null),
+        // 柱状图、方格图：面板比图矮时由外层的滚动容器兜底（QueryPanel 里给了细滚动条）
         "柱状图" => Bar(list, compact ? 46 : 62),
         "方格图" => Waffle(list, compact ? 8 : 10),
         _ => Ui.Hint("未知的视图"),
