@@ -425,10 +425,14 @@ public sealed class ImportWindow : Window
             return;
         }
 
+        // 计数口径（用户 2026-10-16 要求"别自作主张划掉"之后定下的）：
+        //   会导入 = 真正会写进账本的（含"疑似"的那些）；
+        //   跳过   = 判定为确实重复、或你手动锁了"不导入锁定"；
+        //   疑似   = 时间/金额相近、可能重复，但**默认会导入**，只是提醒你核对。
         var fresh = _plans.Count(item => item.WillImport);
-        var skip = _plans.Count(item => !item.WillImport && item.Verdict != RowVerdict.Similar);
-        var similar = _plans.Count(item => item.Verdict == RowVerdict.Similar);
-        _planCounts.Text = $"会导入 {fresh} 条　｜　跳过 {skip} 条（账本里已有）　｜　疑似重复 {similar} 条"
+        var skip = _plans.Count(item => !item.WillImport);
+        var similar = _plans.Count(item => item.Verdict == RowVerdict.Similar && item.WillImport);
+        _planCounts.Text = $"会导入 {fresh} 条（其中疑似重复 {similar} 条）　｜　跳过 {skip} 条（确实是同一条，或你锁了不导入）"
                            + "　（点左侧「状态」按钮可改成 自动 / 导入锁定 / 不导入锁定）";
 
         var shown = 0;

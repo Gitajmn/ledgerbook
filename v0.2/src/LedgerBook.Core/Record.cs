@@ -272,7 +272,17 @@ public static class Valid
         var match = TimePattern.Match(text);
         if (!match.Success)
         {
-            throw new LedgerException($"时间格式应为 HH:MM，收到：{text}");
+            // 容忍"时间区间"：微信账单里"多笔合并发放"常写成 15:35-15:55，
+            // 取**开始**的那个时刻，不要因为格式把整条记录丢掉（用户 2026-10-16 的真实账单里就有）。
+            var loose = Regex.Match(text, @"(\d{1,2}):(\d{2})");
+            if (loose.Success)
+            {
+                match = loose;
+            }
+            else
+            {
+                throw new LedgerException($"时间格式应为 HH:MM，收到：{text}");
+            }
         }
 
         var hour = int.Parse(match.Groups[1].Value, CultureInfo.InvariantCulture);

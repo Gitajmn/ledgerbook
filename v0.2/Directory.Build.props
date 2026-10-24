@@ -10,7 +10,7 @@
     <SatelliteResourceLanguages>zh-Hans;en</SatelliteResourceLanguages>
     <!-- 界面文字是中文，避免不变文化带来的排序/大小写差异 -->
     <InvariantGlobalization>false</InvariantGlobalization>
-    <Version>0.2.5</Version>
+    <Version>0.2.5.5</Version>
     <Company>记账本</Company>
     <Product>记账本</Product>
   </PropertyGroup>

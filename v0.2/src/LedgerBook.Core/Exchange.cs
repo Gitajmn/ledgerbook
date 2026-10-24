@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text;
+using System.Text.RegularExpressions;
 
 namespace LedgerBook.Core;
 
@@ -123,7 +124,9 @@ public sealed class ImportResult
         {
             RowAction.ForceImport => true,
             RowAction.ForceSkip => false,
-            _ => Verdict == RowVerdict.New,
+            // 只有"确实重复"才不导入；"疑似同一笔"（Similar）**默认导入** ——
+            // 用户 2026-10-16 反馈：连续几天同额同备注的转账被当成重复全划掉了，不能这样自作主张。
+            _ => Verdict != RowVerdict.Duplicate,
         };
     }
 public static class Exchange
@@ -666,17 +669,66 @@ public static class Exchange
         return hour * 60 + minute;
     }
 
-    /// <summary>日期相差 ≤1 天，或同一天且时间相差 ≤10 分钟（时间未知视为接近）。</summary>
+    /// <summary>
+    /// 时间上是不是"挨得很近"（用来判断 FP2 命中的两笔到底是不是同一笔）。
+    /// 用户 2026-10-16 报过一次误判：连续几天都给同一个人转 ¥15.00、备注一模一样，
+    /// 结果被全部当成重复划掉 —— 根因就是这里原来"日期相差 ≤1 天就直接算同一笔"。
+    /// 现在的规则：
+    ///   · 同一天：两边都有时间 → 相差 ≤2 小时算近；有一边没填时间 → 算近（同天同额同备注，多半是同一笔）；
+    ///   · 差一天：两边**都**要有时间，且相差 ≤2 小时才算近（跨零点重复出账的账单常见）；
+    ///   · 差两天以上：一律不算。
+    /// </summary>
+    /// <summary>两笔的"实际相隔分钟数"（跨零点按真正的经过时间算；任一方没填时间返回 -1）。</summary>
+    private static int ElapsedMinutes(Record left, Record right)
+    {
+        var a = Minutes(left.Time);
+        var b = Minutes(right.Time);
+        if (a < 0 || b < 0)
+        {
+            return -1;
+        }
+
+        var dayDiff = Math.Abs(left.Date.DayNumber - right.Date.DayNumber) * 1440;
+        return dayDiff + Math.Abs(a - b);
+    }
+
+    /// <summary>
+    /// 时间上是不是"挨得很近"（判断 FP2 命中的两笔到底是不是同一笔）。
+    /// 用户 2026-10-16 报过一次误判：连续几天都给同一个人转 ¥15.00、备注一模一样，被全部当成重复划掉。
+    /// 根因是原来"日期相差 ≤1 天就直接算同一笔"。现在按**实际相隔分钟数**判断：
+    ///   · 两边都有时间 → 相隔 ≤ 120 分钟才算近（跨零点按真实经过时间，23:50 与 00:10 只差 20 分钟）；
+    ///   · 有一边没填时间 → 只有在**同一天**才算近。
+    /// </summary>
     private static bool CloseMatch(Record left, Record right)
     {
-        if (Math.Abs(left.Date.DayNumber - right.Date.DayNumber) <= 1)
+        var elapsed = ElapsedMinutes(left, right);
+        if (elapsed < 0)
+        {
+            return left.Date == right.Date;
+        }
+
+        if (elapsed <= 120)
         {
             return true;
         }
 
-        var a = Minutes(left.Time);
-        var b = Minutes(right.Time);
-        return left.Date == right.Date && (a < 0 || b < 0 || Math.Abs(a - b) <= 10);
+        // 隔一天但"钟点几乎相同"（账单把同一笔在次日又列了一次）→ 也提示"疑似"，
+        // 但**仍然会导入**（Similar 默认导入），不会像以前那样直接划掉。
+        var dayGap = Math.Abs(left.Date.DayNumber - right.Date.DayNumber);
+        var clockDiff = Math.Abs(Minutes(left.Time) - Minutes(right.Time));
+        return dayGap == 1 && (clockDiff <= 10 || clockDiff >= 1430);
+    }
+
+    /// <summary>是不是"几乎同一时刻"（≤10 分钟）：这种才允许判为"确实重复"而不导入。</summary>
+    private static bool TightMatch(Record left, Record right)
+    {
+        var elapsed = ElapsedMinutes(left, right);
+        if (elapsed < 0)
+        {
+            return left.Date == right.Date;
+        }
+
+        return elapsed <= 10;
     }
 
     /// <summary>
@@ -687,12 +739,19 @@ public static class Exchange
     public static List<RowPlan> Plan(IReadOnlyList<Record> candidates, IEnumerable<Record> existing)
     {
         var exact = new Dictionary<string, Record>(StringComparer.Ordinal);
+        // 同一条在账本里可能有多份（例如 56 笔一模一样的红包）→ 判重必须**按次数**，不能"见过就丢"。
+        var exactCount = new Dictionary<string, int>(StringComparer.Ordinal);
         var sameDeal = new Dictionary<string, List<Record>>(StringComparer.Ordinal);
         var alike = new Dictionary<string, List<Record>>(StringComparer.Ordinal);
 
-        void Remember(Record record)
+        void Remember(Record record, bool countAsExisting = true)
         {
-            exact[Fingerprint0(record)] = record;
+            if (countAsExisting)
+            {
+            var key0 = Fingerprint0(record);
+            exact[key0] = record;
+            exactCount[key0] = exactCount.TryGetValue(key0, out var seen) ? seen + 1 : 1;
+            }
 
             var key1 = Fingerprint1(record);
             if (!sameDeal.TryGetValue(key1, out var list1))
@@ -724,23 +783,26 @@ public static class Exchange
             var plan = new RowPlan { Record = candidate };
             var note = NormalizeNote(candidate.Note);
 
-            if (exact.TryGetValue(Fingerprint0(candidate), out var same))
+            var key0 = Fingerprint0(candidate);
+            // 只有账本里"还剩下"一条一模一样的，才算重复（按次数扣减 → 56 笔相同红包不会被当成重复丢掉）
+            if (exact.TryGetValue(key0, out var same) && exactCount.TryGetValue(key0, out var remaining) && remaining > 0)
             {
+                exactCount[key0] = remaining - 1;
                 plan.Verdict = RowVerdict.Duplicate;
                 plan.Exact = true;
                 plan.Matched = $"{same.Date:yyyy-MM-dd} {same.Time} {same.Kind}/{same.Category} {same.Amount}";
             }
             else if (sameDeal.TryGetValue(Fingerprint1(candidate), out var sameDay)
-                     && sameDay.FirstOrDefault(item => NoteAlike(NormalizeNote(item.Note), note)) is { } twin)
+                     && sameDay.FirstOrDefault(item => NoteAlike(NormalizeNote(item.Note), note)) is { } twin && TightMatch(twin, candidate))
             {
-                plan.Verdict = RowVerdict.Duplicate;   // 同一天同一笔，只是备注写法不同
+                plan.Verdict = RowVerdict.Similar;   // 同一天、同额同支付、备注相近 → 只提示"疑似"，仍然导入
                 plan.Matched = $"{twin.Date:yyyy-MM-dd} {twin.Time} {twin.Kind}/{twin.Category} {twin.Amount}（备注写法不同）";
             }
             else if (alike.TryGetValue(Fingerprint2(candidate), out var alikeList)
                      && alikeList.FirstOrDefault(item => CloseMatch(item, candidate)) is { } near)
             {
                 plan.Verdict = RowVerdict.Similar;
-                plan.Matched = $"{near.Date:yyyy-MM-dd} {near.Time} {near.Kind}/{near.Category} {near.Amount}（疑似同一笔）";
+                plan.Matched = $"{near.Date:yyyy-MM-dd} {near.Time} {near.Kind}/{near.Category} {near.Amount}（疑似同一笔；默认仍会导入，不想导就点「不导入锁定」）";
             }
 
             plans.Add(plan);
@@ -748,7 +810,7 @@ public static class Exchange
             // 同一批文件内部也要去重：把"会导入"的那条也记进索引
             if (plan.WillImport)
             {
-                Remember(candidate);
+                Remember(candidate, countAsExisting: false);   // 同一批内部只做"疑似"提示，不算账本里已有
             }
         }
 
@@ -763,6 +825,64 @@ public static class Exchange
         record.Date.ToString("yyyy-MM-dd"), record.Time, record.Kind, record.Category,
         record.Amount, record.Pay, record.Note, record.Owner
     });
+
+    /// <summary>
+    /// 修好"粘贴回来丢了换行"的 CSV 文本（用户 2026-10-16 报的问题）。
+    /// 某些对话软件 / 聊天窗口会把整段文本压成一行（换行被吃掉），那样导入器就分不出记录了。
+    /// 这里只做必要的事：
+    ///   ① 统一换行（\r\n / \r → \n）；
+    ///   ② 逐行看：一行里出现"日期 , 时间"（或"日期 , ,"时间那一格为空）且不在行首，
+    ///      就认为那是下一条记录的开头，在那里补一个换行；正常的多行 CSV 不会被改动；
+    ///   ③ 丢掉表头之前的前言文字（对话软件常先说一句"好的，结果如下"）。
+    /// </summary>
+    public static string RepairPastedText(string? raw)
+    {
+        var text = (raw ?? "").Replace("\r\n", "\n").Replace('\r', '\n');
+        if (text.Trim().Length == 0)
+        {
+            return "";
+        }
+
+        var rebuilt = new List<string>();
+        foreach (var line in text.Split('\n'))
+        {
+            // 记录开头必须是「日期 , 时间」或「日期 , ,」（时间为空）才算 ——
+            // 这样备注里出现的日期（后面跟的是单位或空）不会被误拆。
+            var matches = Regex.Matches(line, @"(?<!^)(?<!\n)(\d{4}-\d{1,2}-\d{1,2}),(?=\d{1,2}:\d{2}|,)");
+            if (matches.Count == 0)
+            {
+                rebuilt.Add(line);
+                continue;
+            }
+
+            var start = 0;
+            foreach (Match match in matches)
+            {
+                rebuilt.Add(line.Substring(start, match.Index - start));
+                start = match.Index;
+            }
+
+            rebuilt.Add(line.Substring(start));
+        }
+
+        var header = rebuilt.FindIndex(line => line.Contains("日期") && line.Contains(','));
+        if (header > 0)
+        {
+            rebuilt = rebuilt.Skip(header).ToList();
+        }
+
+        while (rebuilt.Count > 0 && rebuilt[0].Trim().Length == 0)
+        {
+            rebuilt.RemoveAt(0);
+        }
+
+        while (rebuilt.Count > 0 && rebuilt[^1].Trim().Length == 0)
+        {
+            rebuilt.RemoveAt(rebuilt.Count - 1);
+        }
+
+        return string.Join("\n", rebuilt);
+    }
 
     private static string Escape(string cell)
     {
