@@ -219,6 +219,17 @@ public sealed class SettingsPanel
             CurrencyInput()));
         page.Children.Add(Group("数据目录", "账本就存在这里；装在受保护目录时会自动换到用户目录",
             Ui.InfoRow("当前数据目录", Paths.Root, "复制路径", () => CopyPath(Paths.Root))));
+        page.Children.Add(Group("托盘图标",
+            "右下角通知区域里的记账本图标：双击或左键 → 调出主界面；右键 → 打开主界面 / 更新内容 / 退出。",
+            Ui.Checkbox("关闭窗口时最小化到托盘（程序继续在后台运行，用托盘菜单「退出」才真的退出）",
+                _settings.MinimizeToTray, value =>
+                {
+                    _settings.MinimizeToTray = value;
+                    _settings.Save("关闭时最小化到托盘", value);
+                    _window.SetStatus(value
+                        ? "已开启：点 ✕ 会收到右下角托盘，程序继续运行"
+                        : "已关闭：点 ✕ 直接退出（与以前一样）");
+                })));
         return page;
     }
 

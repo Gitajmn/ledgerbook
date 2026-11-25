@@ -112,6 +112,12 @@ public sealed class Settings
     /// <summary>主题：浅色 / 深色 / 跟随系统。</summary>
     public string Theme { get; set; } = "浅色";
 
+    /// <summary>
+    /// 关闭主窗口时最小化到托盘（0.2.6.5）。默认 **关** = 点 ✕ 直接退出（保持用户原来的习惯）；
+    /// 勾上之后 ✕ 只是把窗口收到右下角，程序继续在后台跑，托盘菜单「退出」才真的退。
+    /// </summary>
+    public bool MinimizeToTray { get; set; }
+
     /// <summary>本机设备名（账户里可改）：导出补设备名、导入判定「自己设备」用。</summary>
     public string DeviceName => Config.LoadAccount().Device;
 
@@ -160,6 +166,7 @@ public sealed class Settings
         settings.AutoBackup = doc.GetBool("自动备份", settings.AutoBackup);
         settings.BackupLimitMb = doc.GetInt("备份上限MB", settings.BackupLimitMb);
         settings.Theme = doc.GetString("主题", settings.Theme);
+        settings.MinimizeToTray = doc.GetBool("关闭时最小化到托盘", settings.MinimizeToTray);
         // 管理员模式**不持久化**（用户要求）：每次启动都是关闭状态，需要重新连点版本号开启
         var enabledThemes = doc.GetStringList("启用的主题方案");
         if (enabledThemes.Count > 0)

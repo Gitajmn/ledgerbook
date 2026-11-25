@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- 卸载逻辑的离线测试（纯控制台，不弹窗、不需要管理员）：
+       直接编译 src\LedgerBook.Setup\UninstallPlan.cs —— 测的就是产品里跑的那份代码。
+       跑法：自检脚本或 tools\卸载逻辑自检.ps1 -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>卸载逻辑自检</AssemblyName>
+    <RootNamespace>LedgerBook.UninstallTest</RootNamespace>
+    <InvariantGlobalization>false</InvariantGlobalization>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="..\..\src\LedgerBook.Setup\UninstallPlan.cs" Link="UninstallPlan.cs" />
+    <Compile Include="..\..\src\LedgerBook.Setup\PackageTail.cs" Link="PackageTail.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- 假向导.cs 是给"解包器端到端测试"用 csc 单独编译的（它会被改名成 lbsetup.exe 放进
+         测试安装包里），不要编进这个控制台工程（否则两个 Main 会打架）。 -->
+    <Compile Remove="假向导.cs" />
+  </ItemGroup>
+
+</Project>

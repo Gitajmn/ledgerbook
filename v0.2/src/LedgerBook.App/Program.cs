@@ -20,7 +20,14 @@ public static class Program
     [System.Runtime.InteropServices.DllImport("user32.dll")]
     private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
 
-    /// <summary>把已经在运行的那个窗口调到前台；调不动就提示一句。</summary>
+    /// <summary>
+    /// 把已经在运行的那个窗口调到前台；调不动就提示一句。
+    ///
+    /// 0.2.6.5 修：原来靠 <c>Process.MainWindowHandle</c> 找窗口，可主窗口一旦被系统隐藏
+    /// （例如弹「更新内容」时按了「显示桌面」）这个值就是 0 → 它以为"没有窗口可调出"，
+    /// 只弹一句「请查看任务栏上的窗口」，而任务栏上根本没有（用户 2026-10-24 实际卡住过）。
+    /// 现在改成枚举该进程的所有顶层窗口，按标题认出主窗口，**再隐藏的也 Show 出来**。
+    /// </summary>
     private static void FocusRunningWindow()
     {
         try
@@ -28,23 +35,69 @@ public static class Program
             var me = System.Diagnostics.Process.GetCurrentProcess();
             foreach (var other in System.Diagnostics.Process.GetProcessesByName(me.ProcessName))
             {
-                if (other.Id == me.Id || other.MainWindowHandle == IntPtr.Zero)
+                if (other.Id == me.Id)
                 {
                     continue;
                 }
 
-                ShowWindow(other.MainWindowHandle, 9);   // SW_RESTORE
-                SetForegroundWindow(other.MainWindowHandle);
+                var hwnd = FindMainHandle(other.Id);
+                if (hwnd == IntPtr.Zero)
+                {
+                    continue;
+                }
+
+                ShowWindow(hwnd, 5);   // SW_SHOW：被隐藏的窗口也重新显示
+                ShowWindow(hwnd, 9);   // SW_RESTORE：最小化的还原
+                SetForegroundWindow(hwnd);
+                Core.Log.Info("已经有一个记账本在运行 → 已把它调到前台");
                 return;
             }
 
-            MessageBox.Show("记账本已经在运行了，请查看任务栏上的窗口。", "记账本", MessageBoxButton.OK, MessageBoxImage.Information);
+            MessageBox.Show(
+                "记账本已经在运行了。\n\n它的窗口可能在任务栏、系统托盘（右下角）里，或者被别的窗口挡住了。",
+                "记账本", MessageBoxButton.OK, MessageBoxImage.Information);
         }
         catch (Exception)
         {
             // 调不动就静默退出，不影响已经开着的那个
         }
     }
+
+    /// <summary>在某个进程的顶层窗口里找出主窗口（优先标题以「记账本 v」开头的那个）。</summary>
+    private static IntPtr FindMainHandle(int processId)
+    {
+        var found = IntPtr.Zero;
+        EnumWindows((hwnd, _) =>
+        {
+            GetWindowThreadProcessId(hwnd, out var pid);
+            if (pid != (uint)processId)
+            {
+                return true;
+            }
+
+            var title = new System.Text.StringBuilder(256);
+            GetWindowTextW(hwnd, title, 256);
+            if (title.ToString().StartsWith("记账本 v", StringComparison.Ordinal))
+            {
+                found = hwnd;
+                return false;   // 找到就不往下枚举了
+            }
+
+            return true;
+        }, IntPtr.Zero);
+        return found;
+    }
+
+    private delegate bool EnumWindowsProc(IntPtr hwnd, IntPtr lParam);
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern bool EnumWindows(EnumWindowsProc callback, IntPtr lParam);
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern uint GetWindowThreadProcessId(IntPtr hwnd, out uint processId);
+
+    [System.Runtime.InteropServices.DllImport("user32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
+    private static extern int GetWindowTextW(IntPtr hwnd, System.Text.StringBuilder text, int maxCount);
 
     [STAThread]
     public static int Main(string[] args)
@@ -347,7 +400,7 @@ case "--trace":
                 return 0;
             }
 
-            var window = new MainWindow { InitialPage = page, AutomationSelectFirst = selectFirst, AutomationStatsKind = statsKind, AutomationStatsCategory = statsHighlight, SuppressWhatsNew = screenshot is not null };
+            var window = new MainWindow { InitialPage = page, AutomationSelectFirst = selectFirst, AutomationStatsKind = statsKind, AutomationStatsCategory = statsHighlight, SuppressWhatsNew = screenshot is not null, EnableTray = !automationRun };
         if (themeTest is not null)
         {
             window.ApplyTheme(themeTest);   // 与用户在设置里点"深色/浅色"完全同一条路径（含 RebuildUi）

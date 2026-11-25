@@ -330,6 +330,9 @@ public static class Exchange
         var result = new ImportResult();
         var days = new Dictionary<DateOnly, DayData>();
         var dirty = new HashSet<DateOnly>();
+        // 本次导入**刚刚写进去**的记录：判重时必须把它们排除掉，否则同一批里"同额同备注"的
+        // 后面几条会认成前一条的重复而被丢掉（用户 2026-10-31 报：4 笔 20.00 的深度求索只进来 1 笔）
+        var addedThisRun = new HashSet<Record>();
 
         foreach (var record in preview.Records)
         {
@@ -352,7 +355,7 @@ public static class Exchange
                     }
                 }
 
-                var duplicate = FindDuplicate(data.Records, record);
+                var duplicate = FindDuplicate(data.Records.Where(item => !addedThisRun.Contains(item)).ToList(), record);
                 if (duplicate is not null)
                 {
                     switch (options.Strategy)
@@ -371,6 +374,7 @@ public static class Exchange
                             break;
                         case "全部追加":
                             data.Records.Add(record);
+                            addedThisRun.Add(record);
                             result.Added++;
                             result.AddedRecords.Add(record);
                             dirty.Add(record.Date);
@@ -384,6 +388,7 @@ public static class Exchange
                 }
 
                 data.Records.Add(record);
+                addedThisRun.Add(record);
                 result.Added++;
                 result.AddedRecords.Add(record);
                 dirty.Add(record.Date);
@@ -423,6 +428,8 @@ public static class Exchange
         var result = new ImportResult();
         var days = new Dictionary<DateOnly, DayData>();
         var dirty = new HashSet<DateOnly>();
+        // 本次导入刚刚写进去的记录：判重时排除掉（同批里"同额同备注"的后面几条不能被当成前一条的重复）
+        var addedThisRun = new HashSet<Record>();
 
         foreach (var plan in plans)
         {
@@ -448,8 +455,9 @@ public static class Exchange
                 if (plan.Action == RowAction.Auto && !plan.Exact)
                 {
                     var again = data.Records.FirstOrDefault(item =>
-                        Fingerprint0(item) == Fingerprint0(record)
-                        || (Fingerprint1(item) == Fingerprint1(record) && NoteAlike(NormalizeNote(item.Note), NormalizeNote(record.Note))));
+                        !addedThisRun.Contains(item)
+                        && (Fingerprint0(item) == Fingerprint0(record)
+                            || (Fingerprint1(item) == Fingerprint1(record) && NoteAlike(NormalizeNote(item.Note), NormalizeNote(record.Note)))));
                     if (again != null)
                     {
                         result.Skipped++;
@@ -493,6 +501,7 @@ public static class Exchange
                 }
 
                 data.Records.Add(record);
+                addedThisRun.Add(record);
                 result.Added++;
                 result.AddedRecords.Add(record);
                 dirty.Add(record.Date);

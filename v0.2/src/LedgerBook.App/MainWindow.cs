@@ -38,6 +38,16 @@ public sealed class MainWindow : Window
     /// <summary>设置页当前停在哪个分区（界面重建后要停回原处，不然会"跳回第一个分区"）。</summary>
     public int SettingsSection { get; set; }
 
+    /// <summary>
+    /// 是否放托盘图标（0.2.6.5）。只有「正常启动」才开：自动化截图、各类预览窗口都不放，
+    /// 免得自检/截图时往用户的通知区域里塞图标。
+    /// </summary>
+    public bool EnableTray { get; set; }
+
+    private TrayIcon? _tray;
+    /// <summary>true = 这次是真的要退出（托盘菜单「退出」/系统关机），不是"收到托盘里"。</summary>
+    private bool _reallyExit;
+
 
     /// <summary>
     /// 全局滚轮：任何 ScrollViewer（含隐藏了滚动条的那些）鼠标悬停其中时，滚轮/触控板都能滚。
@@ -180,6 +190,20 @@ public sealed class MainWindow : Window
                 QueryPage.SelectFirstRow();
             }
 
+            // 托盘图标（0.2.6.5）：正常启动才有。放在弹「更新内容」之前建好 —— 那样即使弹窗期间
+            // 主窗口被系统藏起来了，右下角的图标也已经在，用户点得到。
+            if (EnableTray && _tray is null)
+            {
+                _tray = new TrayIcon(OpenFromTray, ShowWhatsNewFromTray, ExitFromTray);
+                _tray.TryInstall();
+
+                // 系统关机/注销时**不许**「收到托盘」，否则会把关机挡在那里
+                if (Application.Current is not null)
+                {
+                    Application.Current.SessionEnding += (_, _) => _reallyExit = true;
+                }
+            }
+
             if (!SuppressWhatsNew && WhatsNew.ConsumeUpdatedVersion(Paths.Version))
             {
                 WhatsNewWindow.Show(this);   // 更新后首次打开：弹更新内容（首次安装不弹）
@@ -205,6 +229,63 @@ public sealed class MainWindow : Window
                            $"托管堆 {GC.GetTotalMemory(false) / 1024 / 1024} MB，线程 {me.Threads.Count} 个");
             }
         };
+    }
+
+    // ---------------------------------------------------------------- 托盘与关闭（0.2.6.5）
+
+    /// <summary>从托盘调出主窗口：被隐藏就 Show，被最小化就还原，然后拉到最前。</summary>
+    private void OpenFromTray()
+    {
+        if (!IsVisible)
+        {
+            Show();
+        }
+
+        if (WindowState == WindowState.Minimized)
+        {
+            WindowState = WindowState.Normal;
+        }
+
+        Activate();
+        Topmost = true;      // 常见的"确实到最前"技巧：临时置顶再取消（不改用户原来的置顶状态）
+        Topmost = false;
+        Focus();
+    }
+
+    /// <summary>托盘菜单「更新内容」：主窗口在托盘里时不要用 owner（否则弹窗会跟着被藏的窗口一起看不见）。</summary>
+    private void ShowWhatsNewFromTray()
+    {
+        OpenFromTray();   // 先按用户预期把主界面调出来
+        WhatsNewWindow.Run(this, $"记账本 v{Paths.Version} 更新内容");
+    }
+
+    /// <summary>托盘菜单「退出」：走正常关闭流程（会落自动备份、写日志），但不再"收到托盘"。</summary>
+    private void ExitFromTray()
+    {
+        _reallyExit = true;
+        Close();
+    }
+
+    protected override void OnClosing(System.ComponentModel.CancelEventArgs e)
+    {
+        // 设置里勾了「关闭时最小化到托盘」→ 点 ✕ 只是收到右下角，程序继续在后台跑；
+        // 托盘菜单「退出」/系统关机（SessionEnding）时 _reallyExit 已经是 true，正常退出。
+        if (!_reallyExit && _tray is not null && _settings.MinimizeToTray)
+        {
+            e.Cancel = true;
+            Hide();
+            Core.Log.Info("关闭主窗口 → 收到托盘（设置里开了「关闭时最小化到托盘」）");
+            return;
+        }
+
+        base.OnClosing(e);
+    }
+
+    protected override void OnClosed(EventArgs e)
+    {
+        _tray?.Dispose();
+        _tray = null;
+        base.OnClosed(e);
     }
 
     private void BuildUi()

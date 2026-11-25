@@ -166,7 +166,8 @@ public sealed class ImportWindow : Window
 
         // ---------- 预览表格 ----------
         // ---------- 预览列表：逐行（左侧三态按钮；预判不会导入的整行显示为浅色，适配深色/自定义配色）----------
-        _planCounts.Margin = new Thickness(12, 0, 0, 6);
+        // 计数行很长：窗口窄的时候要换行，不能像以前那样被右边缘切掉
+        _planCounts.TextWrapping = TextWrapping.Wrap;
         _planCounts.Margin = new Thickness(12, 6, 0, 6);
         var listScroll = new ScrollViewer
         {
@@ -178,8 +179,18 @@ public sealed class ImportWindow : Window
 
         // 外观与旧版数据表一致：圆角卡片 + 表头 + 行（列宽按比例分配）
         var listCard = Ui.CardPanel(listScroll, padding: 2);
-        var listColumn = new StackPanel { Margin = new Thickness(12, 0, 0, 0) };
+        listCard.Margin = new Thickness(0, 0, 0, 10);   // 表格和底部按钮之间留一点空
+
+        // 必须是 Grid（Auto 放计数行 / Star 放表格）：以前这里是 StackPanel，
+        // StackPanel 会给子元素**无限高度** → 表格被撑到内容那么高，滚动条永远不出现，
+        // 行一多就超出窗口（用户 2026-10-31 报「复核页 1 不能滚动」）。
+        var listColumn = new Grid();
+        listColumn.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        listColumn.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+        // 右边留出与标题/底部一致的 20：以前是 0，表格紧贴窗口右侧（用户 2026-10-31 报）
+        listColumn.Margin = new Thickness(12, 0, 20, 0);
         listColumn.Children.Add(_planCounts);
+        Grid.SetRow(listCard, 1);
         listColumn.Children.Add(listCard);
 
         var body = new Grid();
@@ -386,7 +397,8 @@ public sealed class ImportWindow : Window
 
     /// <summary>把三态与预判渲染成一行行；点左侧小按钮可改成 自动 / 导入锁定 / 不导入锁定。</summary>
     /// <summary>列宽权重：与旧版数据表同款比例（第一列「状态」固定宽度）。</summary>
-    private static readonly double[] PlanWeights = new[] { 1.15, 0.6, 0.55, 0.9, 1.0, 1.25, 1.15, 1.0 };
+    // 列宽权重：时间列原来 0.6 太窄，1433 字的这份文本里"11:34"被截成"11:..."（用户 2026-10-31 反映版式）
+    private static readonly double[] PlanWeights = new[] { 1.0, 0.85, 0.55, 0.9, 1.0, 1.25, 0.85, 0.9 };
 
     /// <summary>把三态与预判渲染成整张表（表头 + 所有行都在同一个 Grid 里 → 列宽天然对齐、互不遮挡）。</summary>
     private void BuildPlanRows()
